@@ -6,7 +6,7 @@ on:
 
 jobs:
   review:
-    name: Gemini Code Review
+    name: Claude Code Review
     runs-on: ubuntu-latest
     # Skip if the PR was opened by the bot itself
     if: github.actor != 'github-actions[bot]'

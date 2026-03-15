@@ -3,8 +3,15 @@ import { Octokit } from "@octokit/rest";
 
 const prNumber = parseInt(process.env.PR_NUMBER);
 const githubToken = process.env.GITHUB_TOKEN;
-const [repoOwner, repoName] = (process.env.GITHUB_REPOSITORY || "").split("/");
+const repo = process.env.GITHUB_REPOSITORY || "";
+const [repoOwner, repoName] = repo.split("/");
 
+if (!prNumber || !githubToken || !repoOwner || !repoName || !process.env.ANTHROPIC_API_KEY) {
+  console.error("Missing required environment variables.");
+  process.exit(1);
+}
+
+const MAX_DIFF_CHARS = 20000;
 const octokit = new Octokit({ auth: githubToken });
 
 async function runReview() {
@@ -22,6 +29,10 @@ async function runReview() {
       return;
     }
 
+    const truncatedDiff = prDiff.length > MAX_DIFF_CHARS
+      ? prDiff.slice(0, MAX_DIFF_CHARS) + "\n\n... [diff truncated]"
+      : prDiff;
+
     const prompt = `You are a senior Python engineer reviewing a pull request for the Node9 Python SDK.
 Node9 is an execution security library — a @protect decorator that intercepts AI agent tool calls and asks for human approval before running them.
 
@@ -37,7 +48,7 @@ Do NOT rewrite the code. Just review it.
 Keep your review under 400 words.
 
 ## Git Diff:
-${prDiff}`;
+${truncatedDiff}`;
 
     console.log("Sending diff to Claude for review...");
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
