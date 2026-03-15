@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.3 (2026-03-15)
+
+### Bug Fixes
+
+- Install twine before upload step
+  ([`4b4e142`](https://github.com/node9-ai/node9-python/commit/4b4e142b02815937551cbbb8569aa72b0ab222bc))
+
+
 ## v1.0.2 (2026-03-15)
 
 ### Bug Fixes
