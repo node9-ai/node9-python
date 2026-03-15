@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.0.2 (2026-03-15)
+
+### Bug Fixes
+
+- Publish to PyPI explicitly with twine instead of semantic-release publish
+  ([`6847fdb`](https://github.com/node9-ai/node9-python/commit/6847fdbbf6c0bbd7a14a743b99745cdf005d73a9))
+
+
 ## v1.0.1 (2026-03-15)
 
 ### Bug Fixes
