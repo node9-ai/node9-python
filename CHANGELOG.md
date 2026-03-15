@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-03-15)
+
+### Features
+
+- Add Gemini AI code review on PRs to main
+  ([`50b651d`](https://github.com/node9-ai/node9-python/commit/50b651dc2575dc954def69dd16d7492369a8149a))
+
+- Switch AI code review from Gemini to Claude Sonnet
+  ([`c52fbb4`](https://github.com/node9-ai/node9-python/commit/c52fbb4ee5d1b460ef008b708e3664e0650f93f9))
+
+
 ## v1.0.3 (2026-03-15)
 
 ### Bug Fixes
