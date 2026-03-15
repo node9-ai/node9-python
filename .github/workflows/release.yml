@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # create tags + commits
+  pull-requests: write  # comment on PRs
+  id-token: write       # PyPI trusted publishing
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # full history so semantic-release can walk commits
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pytest build python-semantic-release
+
+      - name: Run tests
+        run: pytest tests/ -q
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_PR_TOKEN }}
+          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          semantic-release version
+          semantic-release publish

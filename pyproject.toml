@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "node9"
+version = "0.2.0"
+description = "Execution security for Python AI agents — seatbelt for LangChain, CrewAI, and plain Python."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+keywords = ["ai", "agents", "security", "langchain", "crewai", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = []  # zero dependencies — stdlib only
+
+[project.urls]
+Homepage = "https://node9.ai"
+Repository = "https://github.com/node9-ai/node9-python"
+Documentation = "https://node9.ai/docs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["node9"]
+
+[tool.semantic_release]
+version_toml = ["pyproject.toml:project.version"]
+branch = "main"
+build_command = "pip install build && python -m build"
+dist_path = "dist/"
+upload_to_pypi = true
+upload_to_release = true
+commit_version_number = true
+tag_commit = true
+hvcs = "github"
