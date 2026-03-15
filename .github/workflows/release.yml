@@ -40,7 +40,9 @@ jobs:
           semantic-release version
 
       - name: Build
-        run: python -m build
+        run: |
+          pip install build twine
+          python -m build
 
       - name: Publish to PyPI
         env:
