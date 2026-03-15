@@ -34,10 +34,13 @@ packages = ["node9"]
 [tool.semantic_release]
 version_toml = ["pyproject.toml:project.version"]
 branch = "main"
-build_command = "pip install build && python -m build"
+build_command = "pip install build twine && python -m build"
 dist_path = "dist/"
 upload_to_pypi = true
 upload_to_release = true
 commit_version_number = true
 tag_commit = true
 hvcs = "github"
+
+[tool.semantic_release.publish]
+upload_to_vcs_release = true
