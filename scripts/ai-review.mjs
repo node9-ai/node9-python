@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Anthropic from "@anthropic-ai/sdk";
 import { Octokit } from "@octokit/rest";
 
 const prNumber = parseInt(process.env.PR_NUMBER);
@@ -39,18 +39,22 @@ Keep your review under 400 words.
 ## Git Diff:
 ${prDiff}`;
 
-    console.log("Sending diff to Gemini for review...");
-    const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const result = await model.generateContent([prompt]);
-    const review = result.response.text();
+    console.log("Sending diff to Claude for review...");
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const review = message.content[0].text;
 
     console.log("Posting review comment...");
     await octokit.issues.createComment({
       owner: repoOwner,
       repo: repoName,
       issue_number: prNumber,
-      body: `## 🤖 Gemini Code Review\n\n${review}\n\n---\n*Automated review by Gemini 2.5 Flash*`,
+      body: `## 🤖 Claude Code Review\n\n${review}\n\n---\n*Automated review by Claude Sonnet*`,
     });
 
     console.log("Review posted successfully.");
