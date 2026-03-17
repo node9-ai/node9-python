@@ -29,7 +29,8 @@ async function runReview() {
       return;
     }
 
-    const truncatedDiff = prDiff.length > MAX_DIFF_CHARS
+    const wasTruncated = prDiff.length > MAX_DIFF_CHARS;
+    const truncatedDiff = wasTruncated
       ? prDiff.slice(0, MAX_DIFF_CHARS) + "\n\n... [diff truncated]"
       : prDiff;
 
@@ -45,7 +46,7 @@ Review the following git diff and provide concise, actionable feedback. Focus on
 
 If the changes look good with no issues, say so briefly.
 Do NOT rewrite the code. Just review it.
-Keep your review under 400 words.
+Keep your review under 800 words.
 
 ## Git Diff:
 ${truncatedDiff}`;
@@ -65,7 +66,7 @@ ${truncatedDiff}`;
       owner: repoOwner,
       repo: repoName,
       issue_number: prNumber,
-      body: `## 🤖 Claude Code Review\n\n${review}\n\n---\n*Automated review by Claude Sonnet*`,
+      body: `## 🤖 Claude Code Review\n\n${review}${wasTruncated ? "\n\n> ⚠️ **Note:** This diff exceeded 20,000 characters and was truncated. The review above covers only the first portion of the changes." : ""}\n\n---\n*Automated review by Claude Sonnet*`,
     });
 
     console.log("Review posted successfully.");
