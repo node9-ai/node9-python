@@ -8,6 +8,8 @@ Flow:
 
 import json
 import os
+import platform
+import re
 import shutil
 import subprocess
 import time
@@ -23,6 +25,14 @@ _DAEMON_BASE = f"http://127.0.0.1:{DAEMON_PORT}"
 # The daemon auto-denies after ~55s; we wait slightly longer to get that response.
 _CHECK_TIMEOUT = 5      # seconds to establish connection
 _WAIT_TIMEOUT = 65      # seconds to wait for human decision
+
+_CI_CONTEXT_MAX_BYTES = 10_000
+_CI_CONTEXT_ALLOWED_KEYS = {
+    "tests_after", "files_changed", "issues_found", "issues_fixed",
+    "github_repository", "github_head_ref", "iteration",
+    "draft_pr_number", "draft_pr_url",
+}
+_REQUEST_ID_RE = re.compile(r'^[a-zA-Z0-9_\-]{1,128}$')
 
 
 def _daemon_reachable() -> bool:
@@ -82,12 +92,18 @@ def _get(path: str) -> dict:
 
 
 def _read_ci_context() -> dict | None:
-    """Read ~/.node9/ci-context.json if present (written by the CI agent before git push)."""
+    """Read ~/.node9/ci-context.json if present (written by the CI agent before git push).
+    Size-capped and key-allowlisted so an attacker-controlled file cannot poison the payload."""
     ci_context_path = os.path.join(os.path.expanduser("~"), ".node9", "ci-context.json")
     try:
+        if os.path.getsize(ci_context_path) > _CI_CONTEXT_MAX_BYTES:
+            return None
         with open(ci_context_path) as f:
-            return json.load(f)
-    except (OSError, json.JSONDecodeError):
+            raw = json.load(f)
+        if not isinstance(raw, dict):
+            return None
+        return {k: v for k, v in raw.items() if k in _CI_CONTEXT_ALLOWED_KEYS}
+    except (OSError, json.JSONDecodeError, ValueError):
         return None
 
 
@@ -97,17 +113,23 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     Used in CI environments where the local daemon is not running.
     """
     api_key = os.environ.get("NODE9_API_KEY", "")
-    # NODE9_API_URL should point to the intercept endpoint, e.g.:
-    # https://api.node9.ai/api/v1/intercept
-    api_url = os.environ.get("NODE9_API_URL", "https://dev-api.node9.ai/api/v1/intercept")
+    if not api_key:
+        raise RuntimeError("[Node9] NODE9_API_KEY is set but empty — cannot authenticate.")
+
+    api_url = os.environ.get("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept").rstrip("/")
+
+    if not api_url.startswith("https://"):
+        raise RuntimeError(
+            f"[Node9] NODE9_API_URL must use HTTPS to protect credentials (got: {api_url!r})"
+        )
 
     payload: dict = {
         "toolName": tool_name,
         "args": args,
         "context": {
             "agent": "Python SDK",
-            "hostname": os.uname().nodename,
-            "platform": os.uname().sysname.lower(),
+            "hostname": platform.node(),
+            "platform": platform.system().lower(),
             "cwd": os.getcwd(),
         },
     }
@@ -151,12 +173,14 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     request_id = result.get("requestId")
     if not request_id:
         raise RuntimeError(f"[Node9] Unexpected SaaS response: {result}")
+    if not _REQUEST_ID_RE.match(str(request_id)):
+        raise RuntimeError(f"[Node9] Invalid requestId format: {request_id!r}")
 
     print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
 
-    # Poll SaaS /intercept/status/:id until decided
+    poll_timeout = int(os.environ.get("NODE9_CLOUD_TIMEOUT", "600"))
     status_url = f"{api_url}/status/{request_id}"
-    poll_deadline = time.time() + 10 * 60
+    poll_deadline = time.time() + poll_timeout
 
     while time.time() < poll_deadline:
         time.sleep(1)
@@ -168,6 +192,12 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
             )
             with urllib.request.urlopen(poll_req, timeout=5) as resp:
                 status_result = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise RuntimeError(
+                    f"[Node9] Authentication failed during polling (HTTP {e.code}) — check NODE9_API_KEY."
+                ) from e
+            continue
         except (urllib.error.URLError, http.client.HTTPException):
             continue
 
@@ -178,7 +208,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
             reason = status_result.get("reason", "Denied by Node9 policy")
             raise ActionDeniedException(tool_name, reason)
 
-    raise ActionDeniedException(tool_name, "Cloud approval timed out after 10 minutes.")
+    raise ActionDeniedException(tool_name, f"Cloud approval timed out after {poll_timeout}s.")
 
 
 def evaluate(tool_name: str, args: dict[str, Any]) -> None:
