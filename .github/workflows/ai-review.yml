@@ -3,6 +3,9 @@ name: AI Code Review
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '.github/workflows/ai-review.yml'
+      - 'scripts/ai-review.mjs'
 
 jobs:
   review:

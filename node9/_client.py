@@ -81,14 +81,119 @@ def _get(path: str) -> dict:
         return {"decision": "deny", "reason": "Node9 daemon connection timed out or closed."}
 
 
+def _read_ci_context() -> dict | None:
+    """Read ~/.node9/ci-context.json if present (written by the CI agent before git push)."""
+    ci_context_path = os.path.join(os.path.expanduser("~"), ".node9", "ci-context.json")
+    try:
+        with open(ci_context_path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
+    """
+    Cloud routing: POST directly to node9 SaaS when NODE9_API_KEY is set.
+    Used in CI environments where the local daemon is not running.
+    """
+    api_key = os.environ.get("NODE9_API_KEY", "")
+    # NODE9_API_URL should point to the intercept endpoint, e.g.:
+    # https://api.node9.ai/api/v1/intercept
+    api_url = os.environ.get("NODE9_API_URL", "https://dev-api.node9.ai/api/v1/intercept")
+
+    payload: dict = {
+        "toolName": tool_name,
+        "args": args,
+        "context": {
+            "agent": "Python SDK",
+            "hostname": os.uname().nodename,
+            "platform": os.uname().sysname.lower(),
+            "cwd": os.getcwd(),
+        },
+    }
+
+    ci_context = _read_ci_context()
+    if ci_context:
+        payload["ciContext"] = ci_context
+
+    data = json.dumps(payload, default=str).encode()
+    req = urllib.request.Request(
+        api_url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=_CHECK_TIMEOUT) as resp:
+            result = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        body = ""
+        try:
+            body = e.read().decode("utf-8", errors="replace")[:500]
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"[Node9] SaaS returned HTTP {e.code} {e.reason} — body: {body}"
+        ) from e
+    except urllib.error.URLError as e:
+        raise RuntimeError(f"[Node9] Failed to reach node9 SaaS: {e}") from e
+
+    if result.get("approved"):
+        return
+
+    if not result.get("pending"):
+        reason = result.get("reason", "Denied by Node9 policy")
+        raise ActionDeniedException(tool_name, reason)
+
+    request_id = result.get("requestId")
+    if not request_id:
+        raise RuntimeError(f"[Node9] Unexpected SaaS response: {result}")
+
+    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
+
+    # Poll SaaS /intercept/status/:id until decided
+    status_url = f"{api_url}/status/{request_id}"
+    poll_deadline = time.time() + 10 * 60
+
+    while time.time() < poll_deadline:
+        time.sleep(1)
+        try:
+            poll_req = urllib.request.Request(
+                status_url,
+                headers={"Authorization": f"Bearer {api_key}"},
+                method="GET",
+            )
+            with urllib.request.urlopen(poll_req, timeout=5) as resp:
+                status_result = json.loads(resp.read())
+        except (urllib.error.URLError, http.client.HTTPException):
+            continue
+
+        status = status_result.get("status")
+        if status == "APPROVED":
+            return
+        if status in ("DENIED", "AUTO_BLOCKED", "TIMED_OUT", "FIX"):
+            reason = status_result.get("reason", "Denied by Node9 policy")
+            raise ActionDeniedException(tool_name, reason)
+
+    raise ActionDeniedException(tool_name, "Cloud approval timed out after 10 minutes.")
+
+
 def evaluate(tool_name: str, args: dict[str, Any]) -> None:
     """
     Sends the action to the daemon and blocks until a decision is made.
     Raises ActionDeniedException if the action is denied.
     Does nothing if NODE9_SKIP=1 is set (unsafe bypass for testing).
     Set NODE9_AUTO_START=1 to automatically launch the daemon if it's not running.
+    When NODE9_API_KEY is set, routes directly to node9 SaaS (no local daemon needed).
     """
     if os.environ.get("NODE9_SKIP") == "1":
+        return
+
+    if os.environ.get("NODE9_API_KEY"):
+        _evaluate_cloud(tool_name, args)
         return
 
     if os.environ.get("NODE9_AUTO_START") == "1" and not _daemon_reachable():
