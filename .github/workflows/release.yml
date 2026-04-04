@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # create tags + commits
+  pull-requests: write  # comment on PRs
+  id-token: write       # PyPI trusted publishing
+
+jobs:
+  release:
+    name: Semantic Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0           # full history so semantic-release can walk commits
+          persist-credentials: true
+          token: ${{ secrets.AUTO_PR_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pytest build python-semantic-release
+
+      - name: Run tests
+        run: pytest tests/ -q
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_PR_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${{ secrets.AUTO_PR_TOKEN }}@github.com/node9-ai/node9-python.git
+          semantic-release version
+
+      - name: Build
+        run: |
+          pip install build twine
+          python -m build
+
+      - name: Publish to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload dist/* --skip-existing
