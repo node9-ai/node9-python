@@ -1,6 +1,6 @@
 # node9-python
 
-Execution security for Python AI agents — one decorator, zero config.
+Execution security for Python AI agents, one decorator, zero config.
 
 Works with any framework: plain Python, LangChain, CrewAI, LangGraph, or custom agents.
 
