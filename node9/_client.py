@@ -96,10 +96,11 @@ def _read_ci_context() -> dict | None:
     Size-capped and key-allowlisted so an attacker-controlled file cannot poison the payload."""
     ci_context_path = os.path.join(os.path.expanduser("~"), ".node9", "ci-context.json")
     try:
-        if os.path.getsize(ci_context_path) > _CI_CONTEXT_MAX_BYTES:
+        with open(ci_context_path, "rb") as f:
+            raw_bytes = f.read(_CI_CONTEXT_MAX_BYTES + 1)
+        if len(raw_bytes) > _CI_CONTEXT_MAX_BYTES:
             return None
-        with open(ci_context_path) as f:
-            raw = json.load(f)
+        raw = json.loads(raw_bytes)
         if not isinstance(raw, dict):
             return None
         return {k: v for k, v in raw.items() if k in _CI_CONTEXT_ALLOWED_KEYS}
@@ -178,7 +179,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
 
     print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
 
-    poll_timeout = int(os.environ.get("NODE9_CLOUD_TIMEOUT", "600"))
+    poll_timeout = max(30, min(3600, int(os.environ.get("NODE9_CLOUD_TIMEOUT", "600"))))
     status_url = f"{api_url}/status/{request_id}"
     poll_deadline = time.time() + poll_timeout
 
@@ -201,7 +202,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
         except (urllib.error.URLError, http.client.HTTPException):
             continue
 
-        status = status_result.get("status")
+        status = status_result.get("status", "").upper()
         if status == "APPROVED":
             return
         if status in ("DENIED", "AUTO_BLOCKED", "TIMED_OUT", "FIX"):
