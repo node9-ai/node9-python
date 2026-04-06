@@ -1,6 +1,10 @@
 # node9-python
 
+<<<<<<< dev
 Execution security for Python AI agents — audit, policy enforcement, and DLP in one package.
+=======
+Execution security for Python AI agents, one decorator, zero config.
+>>>>>>> main
 
 Works two ways:
 - **`@protect`** — add governance to any existing agent (LangChain, CrewAI, AutoGen, plain Python)
