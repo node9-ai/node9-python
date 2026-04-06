@@ -1,9 +1,10 @@
 """
-Thin HTTP client — talks to the local Node9 daemon on localhost:7391.
+Thin HTTP client — talks to either the local Node9 daemon or node9 SaaS.
 
-Flow:
-  POST /check  → { id }                      registers the action
-  GET  /wait/:id → { decision, reason? }     blocks until approved / denied
+Routing:
+  NODE9_API_KEY set    → node9 SaaS (api.node9.ai)      cloud / CI
+  daemon reachable     → local proxy (localhost:7391)    persona 1 / local dev
+  neither              → offline audit log               dev / test, never blocks
 """
 
 import json
@@ -18,6 +19,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from . import _config
 from ._config import DAEMON_PORT
 from ._exceptions import ActionDeniedException, DaemonNotFoundError
 
@@ -108,7 +110,35 @@ def _read_ci_context() -> dict | None:
         return None
 
 
-def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
+def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
+    """
+    Offline audit mode — no daemon, no SaaS.
+    Writes a local audit entry and auto-approves. Never blocks.
+    Used when neither NODE9_API_KEY nor local daemon is available.
+    """
+    import datetime
+    audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
+    os.makedirs(audit_dir, exist_ok=True)
+    audit_path = os.path.join(audit_dir, "audit.log")
+    entry = {
+        "ts": datetime.datetime.utcnow().isoformat() + "Z",
+        "mode": "offline",
+        "agent": _config.AGENT_NAME or "Python SDK",
+        "policy": _config.AGENT_POLICY or "offline",
+        "runId": run_id,
+        "toolName": tool_name,
+        "args": args,
+        "decision": "allow",
+    }
+    try:
+        with open(audit_path, "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+    except OSError:
+        pass  # never crash the agent due to audit failure
+    print(f"  [node9 offline] {tool_name} — logged to {audit_path}", flush=True)
+
+
+def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> None:
     """
     Cloud routing: POST directly to node9 SaaS when NODE9_API_KEY is set.
     Used in CI environments where the local daemon is not running.
@@ -127,8 +157,11 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     payload: dict = {
         "toolName": tool_name,
         "args": args,
+        "agentName": _config.AGENT_NAME or "Python SDK",
+        "policy": _config.AGENT_POLICY,
+        "runId": run_id,
         "context": {
-            "agent": "Python SDK",
+            "agent": _config.AGENT_NAME or "Python SDK",
             "hostname": platform.node(),
             "platform": platform.system().lower(),
             "cwd": os.getcwd(),
@@ -212,25 +245,38 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     raise ActionDeniedException(tool_name, f"Cloud approval timed out after {poll_timeout}s.")
 
 
-def evaluate(tool_name: str, args: dict[str, Any]) -> None:
+def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     """
-    Sends the action to the daemon and blocks until a decision is made.
+    Sends the action to node9 for audit / approval. Routing:
+      NODE9_SKIP=1        → no-op (unsafe bypass for testing)
+      NODE9_API_KEY set   → node9 SaaS
+      daemon reachable    → local proxy
+      neither             → offline audit log (auto-approve, never blocks)
+
     Raises ActionDeniedException if the action is denied.
-    Does nothing if NODE9_SKIP=1 is set (unsafe bypass for testing).
-    Set NODE9_AUTO_START=1 to automatically launch the daemon if it's not running.
-    When NODE9_API_KEY is set, routes directly to node9 SaaS (no local daemon needed).
     """
     if os.environ.get("NODE9_SKIP") == "1":
         return
 
     if os.environ.get("NODE9_API_KEY"):
-        _evaluate_cloud(tool_name, args)
+        _evaluate_cloud(tool_name, args, run_id=run_id)
         return
 
     if os.environ.get("NODE9_AUTO_START") == "1" and not _daemon_reachable():
         _auto_start_daemon()
 
-    result = _post("/check", {"toolName": tool_name, "args": args, "cwd": os.getcwd(), "agent": "Python SDK"})
+    if not _daemon_reachable():
+        _offline_audit(tool_name, args, run_id=run_id)
+        return
+
+    result = _post("/check", {
+        "toolName": tool_name,
+        "args": args,
+        "cwd": os.getcwd(),
+        "agent": _config.AGENT_NAME or "Python SDK",
+        "policy": _config.AGENT_POLICY,
+        "runId": run_id,
+    })
     request_id = result.get("id")
     if not request_id:
         raise RuntimeError(f"[Node9] Unexpected daemon response: {result}")
