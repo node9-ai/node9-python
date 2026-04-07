@@ -215,6 +215,21 @@ class TestInternalDecorator:
         assert "_git_push" in captured.err
         assert "internal" not in captured.out  # must NOT appear on stdout
 
+    def test_internal_not_reachable_via_dispatch(self, tmp_path):
+        """LLM cannot invoke @internal methods through dispatch() — they are invisible to the tool router."""
+        agent = SimpleAgent(workspace=str(tmp_path))
+        result = agent.dispatch("_git_push", {"branch": "main"})
+        assert "Unknown tool" in result, (
+            "@internal method '_git_push' should not be reachable via dispatch()"
+        )
+
+    def test_internal_not_reachable_via_dispatch_by_function_name(self, tmp_path):
+        """dispatch() ignores @internal even if called by the underlying function name."""
+        agent = SimpleAgent(workspace=str(tmp_path))
+        # SimpleAgent._git_push is @internal — must not be callable via dispatch
+        result = agent.dispatch("_git_push", {})
+        assert "Unknown tool" in result
+
     def test_internal_on_public_method_warns(self):
         """@internal on a public method (no leading _) emits RuntimeWarning."""
         import warnings

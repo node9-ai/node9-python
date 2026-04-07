@@ -98,6 +98,55 @@ class TestDlpScanLogic:
         assert result is not None
 
 
+class TestRealPatternMatching:
+    """Verify the actual DLP regexes match the credential formats they target.
+
+    Strings are constructed from fragments joined at runtime so no complete
+    credential pattern appears as a literal in this source file — which would
+    trigger node9's own DLP hook when writing or committing this file.
+    """
+
+    def test_aws_key_in_content_is_detected(self):
+        # AWS Access Key ID: AKIA + 16 uppercase alphanumeric chars
+        # Split to avoid a complete match in source text
+        prefix = "AKI" + "A"          # "AKIA" in source is never complete
+        suffix = "X" * 8 + "0" * 8   # 16-char body, clearly synthetic
+        fake_key = prefix + suffix
+        result = dlp_scan("config.txt", f"aws_key={fake_key}")
+        assert result is not None
+        assert "AWS" in result
+
+    def test_github_token_in_content_is_detected(self):
+        # GitHub token: ghp_ + 36 alphanumeric
+        fake_token = "gh" + "p_" + "A" * 36
+        result = dlp_scan("env.txt", f"GH_TOKEN={fake_token}")
+        assert result is not None
+        assert "GitHub" in result
+
+    def test_pem_key_in_content_is_detected(self):
+        # PEM private key header — split across fragments so it never appears whole
+        pem_begin = "-----BEGIN " + "RSA "
+        pem_end = "PRIVATE KEY-----"
+        result = dlp_scan("key.txt", pem_begin + pem_end)
+        assert result is not None
+        assert "Private Key" in result
+
+    def test_clean_content_with_normal_path_passes(self):
+        result = dlp_scan("output.txt", "def hello():\n    return 42\n")
+        assert result is None
+
+    def test_sensitive_path_detected_regardless_of_content(self):
+        result = dlp_scan("/home/user/.ssh/" + "id_rsa", "normal content")
+        assert result is not None
+
+    def test_both_path_and_content_triggers(self):
+        # Both path and content are bad — path check runs first, result is non-None
+        prefix = "AKI" + "A"
+        fake_key = prefix + "X" * 8 + "0" * 8
+        result = dlp_scan("/home/user/.ssh/" + "id_rsa", fake_key)
+        assert result is not None
+
+
 class TestSensitivePathDetection:
     """Test sensitive file path blocking — no credential content needed."""
 

@@ -134,9 +134,11 @@ def internal(fn: Callable) -> Callable:
     Marks a Node9Agent method as infrastructure (git plumbing, workspace setup).
 
     - Never calls evaluate() — no SaaS call, no blocking, no DLP scan
-    - Logs to stdout: [node9 internal] method_name(args)
+    - Logs to stderr: [node9 internal] method_name(args)
     - Use only for non-agent-decision code (git, workspace setup, file plumbing).
       Do NOT use to bypass governance on agent-controlled actions.
+    - NOT reachable via dispatch() — the LLM cannot invoke @internal methods
+      through the tool-call interface. dispatch() only routes to @tool methods.
 
     WARNING: @internal skips all governance. By convention, @internal methods
     should have names starting with '_' to make the bypass visible at call sites.

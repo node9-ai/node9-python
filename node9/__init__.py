@@ -16,6 +16,14 @@ def configure(*, agent_name: str = "", policy: str = "") -> None:
     Thread-safe — safe to call from concurrent async frameworks (LangGraph, FastMCP).
 
     policy values: "audit" | "require_approval" | "block_on_rules" | "" (SaaS default)
+
+    Configuration precedence (highest wins):
+      1. configure() called at runtime           — highest priority
+      2. Node9Agent.agent_name / .policy class attributes
+      3. NODE9_AGENT_NAME / NODE9_AGENT_POLICY env vars  — baseline at import time
+
+    Calling configure() after the first tool call is allowed but not recommended —
+    in-flight calls will have already used the previous identity.
     """
     _config.set_identity(agent_name=agent_name, policy=policy)
 
