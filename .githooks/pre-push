@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Run tests before every push. Last safety net before hitting the remote.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=run-tests.sh
+source "$SCRIPT_DIR/run-tests.sh" push
