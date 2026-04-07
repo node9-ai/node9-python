@@ -38,27 +38,25 @@ else
 fi
 
 # =============================================================================
-# PART 2 — DaemonNotFoundError when no daemon running
+# PART 2 — Offline mode when no daemon running and no API key
 # =============================================================================
-section "Part 2 · DaemonNotFoundError when daemon is not running"
+section "Part 2 · Offline audit mode when no daemon and no API key"
 
 out=$(NODE9_DAEMON_PORT=19999 python3 -c "
-from node9 import protect, DaemonNotFoundError
+from node9 import protect
 @protect
 def write_file(path): pass
 try:
-    write_file('/tmp/test')
-    print('no_error')
-except DaemonNotFoundError:
-    print('daemon_not_found')
+    result = write_file('/tmp/test')
+    print('offline_ok')
 except Exception as e:
-    print(f'wrong_error: {e}')
+    print(f'unexpected_error: {e}')
 " 2>&1)
 
-if echo "$out" | grep -q "daemon_not_found"; then
-  pass "DaemonNotFoundError raised when daemon unreachable"
+if echo "$out" | grep -q "offline_ok"; then
+  pass "Offline audit mode activates when daemon unreachable and no API key"
 else
-  fail "Expected DaemonNotFoundError (got: '$out')"
+  fail "Expected offline mode success (got: '$out')"
 fi
 
 # =============================================================================

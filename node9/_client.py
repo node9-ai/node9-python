@@ -1,9 +1,10 @@
 """
-Thin HTTP client — talks to the local Node9 daemon on localhost:7391.
+Thin HTTP client — talks to either the local Node9 daemon or node9 SaaS.
 
-Flow:
-  POST /check  → { id }                      registers the action
-  GET  /wait/:id → { decision, reason? }     blocks until approved / denied
+Routing:
+  NODE9_API_KEY set    → node9 SaaS (api.node9.ai)      cloud / CI
+  daemon reachable     → local proxy (localhost:7391)    persona 1 / local dev
+  neither              → offline audit log               dev / test, never blocks
 """
 
 import json
@@ -12,12 +13,14 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import time
 import http.client
 import urllib.error
 import urllib.request
 from typing import Any
 
+from . import _config
 from ._config import DAEMON_PORT
 from ._exceptions import ActionDeniedException, DaemonNotFoundError
 
@@ -25,6 +28,15 @@ _DAEMON_BASE = f"http://127.0.0.1:{DAEMON_PORT}"
 # The daemon auto-denies after ~55s; we wait slightly longer to get that response.
 _CHECK_TIMEOUT = 5      # seconds to establish connection
 _WAIT_TIMEOUT = 65      # seconds to wait for human decision
+
+_SKIP = os.environ.get("NODE9_SKIP") == "1"
+if _SKIP:
+    import warnings as _warnings
+    _warnings.warn(
+        "[Node9] NODE9_SKIP=1 is set — all governance checks are disabled. "
+        "Never set this in production.",
+        stacklevel=2,
+    )
 
 _CI_CONTEXT_MAX_BYTES = 10_000
 _CI_CONTEXT_ALLOWED_KEYS = {
@@ -108,7 +120,48 @@ def _read_ci_context() -> dict | None:
         return None
 
 
-def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
+def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
+    """
+    Offline audit mode — no daemon, no SaaS.
+    Writes a local audit entry and auto-approves. Never blocks.
+    Used when neither NODE9_API_KEY nor local daemon is available.
+    """
+    import datetime
+    _, policy = _config.get()
+    if policy == "require_approval":
+        import warnings
+        warnings.warn(
+            f"[Node9] Governance degraded to offline/auto-approve for '{tool_name}' — "
+            "policy is 'require_approval' but no daemon or API key is available. "
+            "Start the node9 daemon or set NODE9_API_KEY to enforce approvals.",
+            RuntimeWarning,
+            stacklevel=4,
+        )
+    audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
+    os.makedirs(audit_dir, exist_ok=True)
+    audit_path = os.path.join(audit_dir, "audit.log")
+    entry = {
+        "ts": datetime.datetime.utcnow().isoformat() + "Z",
+        "mode": "offline",
+        "agent": (_config.get()[0] or "Python SDK"),
+        "policy": (_config.get()[1] or "offline"),
+        "runId": run_id,
+        "toolName": tool_name,
+        "args": args,
+        "decision": "allow",
+    }
+    try:
+        with open(audit_path, "a") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+    except OSError as e:
+        # Audit write failed (read-only fs, container, permissions).
+        # Never crash the agent, but surface the failure so it's not silent.
+        print(f"  [node9 offline] WARNING: audit write failed ({e})", file=sys.stderr, flush=True)
+    else:
+        print(f"  [node9 offline] {tool_name} — logged to {audit_path}", file=sys.stderr, flush=True)
+
+
+def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> None:
     """
     Cloud routing: POST directly to node9 SaaS when NODE9_API_KEY is set.
     Used in CI environments where the local daemon is not running.
@@ -119,16 +172,20 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
 
     api_url = os.environ.get("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept").rstrip("/")
 
-    if not api_url.startswith("https://"):
+    if not api_url.startswith("https://") and not api_url.startswith("http://localhost"):
         raise RuntimeError(
             f"[Node9] NODE9_API_URL must use HTTPS to protect credentials (got: {api_url!r})"
         )
 
+    _agent_name, _agent_policy = _config.get()
     payload: dict = {
         "toolName": tool_name,
         "args": args,
+        "agentName": _agent_name or "Python SDK",
+        "policy": _agent_policy,
+        "runId": run_id,
         "context": {
-            "agent": "Python SDK",
+            "agent": _agent_name or "Python SDK",
             "hostname": platform.node(),
             "platform": platform.system().lower(),
             "cwd": os.getcwd(),
@@ -177,7 +234,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     if not _REQUEST_ID_RE.match(str(request_id)):
         raise RuntimeError(f"[Node9] Invalid requestId format: {request_id!r}")
 
-    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
+    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", file=sys.stderr, flush=True)
 
     poll_timeout = max(30, min(3600, int(os.environ.get("NODE9_CLOUD_TIMEOUT", "600"))))
     status_url = f"{api_url}/status/{request_id}"
@@ -212,30 +269,50 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any]) -> None:
     raise ActionDeniedException(tool_name, f"Cloud approval timed out after {poll_timeout}s.")
 
 
-def evaluate(tool_name: str, args: dict[str, Any]) -> None:
+def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     """
-    Sends the action to the daemon and blocks until a decision is made.
+    Sends the action to node9 for audit / approval. Routing:
+      NODE9_SKIP=1        → no-op (unsafe bypass for testing)
+      NODE9_API_KEY set   → node9 SaaS
+      daemon reachable    → local proxy
+      neither             → offline audit log (auto-approve, never blocks)
+
     Raises ActionDeniedException if the action is denied.
-    Does nothing if NODE9_SKIP=1 is set (unsafe bypass for testing).
-    Set NODE9_AUTO_START=1 to automatically launch the daemon if it's not running.
-    When NODE9_API_KEY is set, routes directly to node9 SaaS (no local daemon needed).
     """
-    if os.environ.get("NODE9_SKIP") == "1":
+    if _SKIP:
+        import warnings
+        warnings.warn(
+            f"[Node9] NODE9_SKIP=1 — governance bypassed for '{tool_name}'. "
+            "Do not use in production.",
+            stacklevel=3,
+        )
+        _offline_audit(tool_name, {**args, "_skip": True}, run_id=run_id)
         return
 
     if os.environ.get("NODE9_API_KEY"):
-        _evaluate_cloud(tool_name, args)
+        _evaluate_cloud(tool_name, args, run_id=run_id)
         return
 
     if os.environ.get("NODE9_AUTO_START") == "1" and not _daemon_reachable():
         _auto_start_daemon()
 
-    result = _post("/check", {"toolName": tool_name, "args": args, "cwd": os.getcwd(), "agent": "Python SDK"})
+    if not _daemon_reachable():
+        _offline_audit(tool_name, args, run_id=run_id)
+        return
+
+    result = _post("/check", {
+        "toolName": tool_name,
+        "args": args,
+        "cwd": os.getcwd(),
+        "agent": (_config.get()[0] or "Python SDK"),
+        "policy": _config.get()[1],
+        "runId": run_id,
+    })
     request_id = result.get("id")
     if not request_id:
         raise RuntimeError(f"[Node9] Unexpected daemon response: {result}")
 
-    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
+    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", file=sys.stderr, flush=True)
     decision_result = _get(f"/wait/{request_id}")
     decision = decision_result.get("decision", "deny")
 

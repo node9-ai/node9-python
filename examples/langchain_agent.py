@@ -32,10 +32,15 @@ class RunShellTool(BaseTool):
     name: str = "bash"
     description: str = "Run a shell command and return its output."
 
+    _ALLOWED_COMMANDS = {"pytest", "ruff check .", "mypy ."}
+
     @protect("bash")
     def _run(self, command: str) -> str:
-        import subprocess
-        return subprocess.check_output(command, shell=True, text=True)
+        import shlex, subprocess
+        # Allowlist-only: never pass LLM-controlled strings to shell=True.
+        if command not in self._ALLOWED_COMMANDS:
+            raise ValueError(f"Command {command!r} not in allowed list")
+        return subprocess.check_output(shlex.split(command), text=True)
 
 
 class DeleteFileTool(BaseTool):

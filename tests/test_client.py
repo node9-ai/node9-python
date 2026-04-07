@@ -8,6 +8,7 @@ from node9._exceptions import ActionDeniedException, DaemonNotFoundError
 from node9._client import evaluate
 
 
+
 def _make_response(data: dict):
     """Create a mock urllib response."""
     m = MagicMock()
@@ -18,6 +19,12 @@ def _make_response(data: dict):
 
 
 class TestEvaluate:
+    @pytest.fixture(autouse=True)
+    def _daemon_up(self):
+        """Pretend daemon is reachable so urlopen side_effects go to /check and /wait only."""
+        with patch("node9._client._daemon_reachable", return_value=True):
+            yield
+
     def test_allow_decision_passes(self):
         check_resp = _make_response({"id": "req-123"})
         wait_resp = _make_response({"decision": "allow"})
@@ -77,10 +84,21 @@ class TestEvaluate:
                 evaluate("deploy", {"server": "prod"})
 
     def test_node9_skip_env_bypasses_daemon(self, monkeypatch):
-        monkeypatch.setenv("NODE9_SKIP", "1")
-        # No mock needed — should not call urlopen at all
+        # _SKIP is read once at import time — patch the flag directly
+        monkeypatch.setattr("node9._client._SKIP", True)
         with patch("urllib.request.urlopen", side_effect=Exception("should not be called")):
             evaluate("anything", {"key": "val"})  # should not raise
+
+    def test_node9_skip_emits_warning_per_call(self, monkeypatch, tmp_path):
+        """evaluate() warns on every call when NODE9_SKIP=1 so misuse is visible in logs."""
+        import warnings
+        monkeypatch.setattr("node9._client._SKIP", True)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            evaluate("any_tool", {"x": 1})
+        assert any("NODE9_SKIP" in str(w.message) for w in caught), \
+            "Expected a NODE9_SKIP warning but none was emitted"
 
     def test_unknown_decision_treated_as_deny(self):
         check_resp = _make_response({"id": "req-123"})
@@ -135,12 +153,12 @@ class TestEvaluate:
 
 
 class TestAutoStart:
-    def test_auto_start_not_triggered_by_default(self, monkeypatch):
-        """Without NODE9_AUTO_START=1, DaemonNotFoundError is raised immediately."""
+    def test_auto_start_not_triggered_by_default(self, monkeypatch, tmp_path):
+        """Without NODE9_AUTO_START=1 and no daemon, offline audit mode activates (no crash)."""
         monkeypatch.delenv("NODE9_AUTO_START", raising=False)
-        with patch("urllib.request.urlopen", side_effect=URLError("Connection refused")):
-            with pytest.raises(DaemonNotFoundError):
-                evaluate("write_file", {"path": "/tmp/x"})
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("node9._client._daemon_reachable", return_value=False):
+            evaluate("write_file", {"path": "/tmp/x"})  # offline mode — should not raise
 
     def test_auto_start_triggered_when_env_set(self, monkeypatch):
         """NODE9_AUTO_START=1 calls _auto_start_daemon when daemon is unreachable."""
@@ -163,3 +181,164 @@ class TestAutoStart:
             with patch("node9._client._auto_start_daemon") as mock_start:
                 evaluate("write_file", {"path": "/tmp/x"})
         mock_start.assert_called_once()
+
+
+class TestAgentIdentityInPayload:
+    """Agent name, policy, and run_id are injected into local-daemon payloads."""
+
+    def test_agent_name_in_payload(self, monkeypatch):
+        import node9._config as cfg
+        monkeypatch.setattr(cfg, "AGENT_NAME", "ci-agent")
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "audit")
+        sent = []
+        check_resp = _make_response({"id": "req-1"})
+        wait_resp  = _make_response({"decision": "allow"})
+
+        def capture(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return check_resp if req.get_method() == "POST" else wait_resp
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with patch("node9._client._daemon_reachable", return_value=True):
+                evaluate("bash", {"command": "ls"})
+
+        assert sent[0]["agent"] == "ci-agent"
+
+    def test_policy_in_payload(self, monkeypatch):
+        import node9._config as cfg
+        monkeypatch.setattr(cfg, "AGENT_NAME", "ci-agent")
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "audit")
+        sent = []
+        check_resp = _make_response({"id": "req-1"})
+        wait_resp  = _make_response({"decision": "allow"})
+
+        def capture(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return check_resp if req.get_method() == "POST" else wait_resp
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with patch("node9._client._daemon_reachable", return_value=True):
+                evaluate("bash", {"command": "ls"})
+
+        assert sent[0]["policy"] == "audit"
+
+    def test_run_id_in_payload(self, monkeypatch):
+        import node9._config as cfg
+        monkeypatch.setattr(cfg, "AGENT_NAME", "")
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "")
+        sent = []
+        check_resp = _make_response({"id": "req-1"})
+        wait_resp  = _make_response({"decision": "allow"})
+
+        def capture(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return check_resp if req.get_method() == "POST" else wait_resp
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with patch("node9._client._daemon_reachable", return_value=True):
+                evaluate("bash", {"command": "ls"}, run_id="run-abc-123")
+
+        assert sent[0]["runId"] == "run-abc-123"
+
+    def test_fallback_agent_name_when_empty(self, monkeypatch):
+        import node9._config as cfg
+        monkeypatch.setattr(cfg, "AGENT_NAME", "")
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "")
+        sent = []
+        check_resp = _make_response({"id": "req-1"})
+        wait_resp  = _make_response({"decision": "allow"})
+
+        def capture(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return check_resp if req.get_method() == "POST" else wait_resp
+
+        with patch("urllib.request.urlopen", side_effect=capture):
+            with patch("node9._client._daemon_reachable", return_value=True):
+                evaluate("bash", {"command": "ls"})
+
+        assert sent[0]["agent"] == "Python SDK"
+
+
+class TestOfflineMode:
+    """When neither API key nor daemon is available, offline audit mode activates."""
+
+    def test_offline_mode_does_not_raise(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("node9._client._daemon_reachable", return_value=False):
+            evaluate("bash", {"command": "ls"})  # must not raise
+
+    def test_offline_mode_writes_audit_log(self, monkeypatch, tmp_path):
+        import os, json as _json
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("node9._client._daemon_reachable", return_value=False):
+            evaluate("bash", {"command": "ls"}, run_id="test-run-1")
+
+        audit_path = tmp_path / ".node9" / "audit.log"
+        assert audit_path.exists()
+        entry = _json.loads(audit_path.read_text().strip())
+        assert entry["toolName"] == "bash"
+        assert entry["runId"] == "test-run-1"
+        assert entry["decision"] == "allow"
+        assert entry["mode"] == "offline"
+
+    def test_offline_mode_auto_approves(self, monkeypatch, tmp_path):
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with patch("node9._client._daemon_reachable", return_value=False):
+            # Should return normally (not raise ActionDeniedException)
+            result = evaluate("bash", {"command": "ls"})
+        assert result is None
+
+    def test_offline_with_require_approval_policy_warns(self, monkeypatch, tmp_path):
+        """Offline auto-approve must warn loudly when policy is require_approval."""
+        import warnings
+        import node9._config as cfg
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "require_approval")
+        with patch("node9._client._daemon_reachable", return_value=False):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                evaluate("deploy", {"target": "prod"})
+        assert any(
+            issubclass(w.category, RuntimeWarning) and "require_approval" in str(w.message)
+            for w in caught
+        ), "Expected RuntimeWarning for offline degradation under require_approval policy"
+
+
+class TestConfigure:
+    def test_configure_sets_agent_name(self):
+        from node9 import configure
+        import node9._config as cfg
+        configure(agent_name="my-agent")
+        assert cfg.AGENT_NAME == "my-agent"
+
+    def test_configure_sets_policy(self):
+        from node9 import configure
+        import node9._config as cfg
+        configure(policy="require_approval")
+        assert cfg.AGENT_POLICY == "require_approval"
+
+    def test_configure_empty_string_does_not_overwrite(self):
+        from node9 import configure
+        import node9._config as cfg
+        cfg.AGENT_NAME = "existing-agent"
+        configure(agent_name="")  # empty → should not overwrite
+        assert cfg.AGENT_NAME == "existing-agent"
+
+    def test_configure_both_at_once(self):
+        from node9 import configure
+        import node9._config as cfg
+        configure(agent_name="batch-agent", policy="audit")
+        assert cfg.AGENT_NAME == "batch-agent"
+        assert cfg.AGENT_POLICY == "audit"

@@ -27,10 +27,15 @@ def delete_file(path: str) -> None:
     print(f"Deleted: {path}")
 
 
+_ALLOWED_COMMANDS = {"ls", "pwd", "git status", "git log --oneline"}
+
 @protect("bash")
 def run_shell(command: str) -> str:
-    import subprocess
-    return subprocess.check_output(command, shell=True, text=True)
+    import shlex, subprocess
+    # Allowlist-only: never pass LLM-controlled strings to shell=True.
+    if command not in _ALLOWED_COMMANDS:
+        raise ValueError(f"Command {command!r} not in allowed list")
+    return subprocess.check_output(shlex.split(command), text=True)
 
 
 # --- Custom tool name + params lambda ---
