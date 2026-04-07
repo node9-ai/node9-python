@@ -14,11 +14,15 @@ Usage:
         agent_name = "ci-code-review"
         policy     = "audit"
 
+        _ALLOWED_SUITES = {"pytest", "pytest --tb=short", "ruff check ."}
+
         @tool("run_tests")
-        def run_tests(self, command: str) -> str:
+        def run_tests(self, suite: str) -> str:
             import shlex, subprocess
-            # Use shell=False to avoid injection — split the command string safely
-            return subprocess.check_output(shlex.split(command), text=True)
+            # Always allowlist LLM-controlled commands — never pass raw strings to subprocess.
+            if suite not in self._ALLOWED_SUITES:
+                raise ValueError(f"Suite {suite!r} not in allowed list")
+            return subprocess.check_output(shlex.split(suite), text=True)
 
         @tool("write_code")
         def write_code(self, filename: str, content: str) -> str:
@@ -46,10 +50,13 @@ Usage:
     #   result = agent.dispatch(tool_name, tool_input)
 """
 
+import asyncio
 import functools
 import inspect
 import os
+import sys
 import uuid
+import warnings
 from typing import Any, Callable, Union
 
 from ._client import evaluate
@@ -135,7 +142,6 @@ def internal(fn: Callable) -> Callable:
     should have names starting with '_' to make the bypass visible at call sites.
     A RuntimeWarning is raised if a public method name is decorated with @internal.
     """
-    import warnings
     if not fn.__name__.startswith("_"):
         warnings.warn(
             f"@internal applied to public method '{fn.__name__}' — @internal skips all "
@@ -151,7 +157,9 @@ def internal(fn: Callable) -> Callable:
         bound.apply_defaults()
         call_args = {k: v for k, v in bound.arguments.items() if k != "self"}
         arg_summary = ", ".join(f"{k}={str(v)[:60]!r}" for k, v in call_args.items())
-        print(f"  [node9 internal] {fn.__name__}({arg_summary})", flush=True)
+        # Write to stderr, not stdout — LLM frameworks parse stdout for tool results
+        # and a print() mid-execution would corrupt the JSON/text output stream.
+        print(f"  [node9 internal] {fn.__name__}({arg_summary})", file=sys.stderr, flush=True)
         return fn(self, *args, **kwargs)
 
     setattr(wrapper, _INTERNAL_ATTR, True)
@@ -320,7 +328,6 @@ class Node9Agent:
                 try:
                     result = getattr(self, attr_name)(**tool_input)
                     if inspect.iscoroutine(result):
-                        import asyncio
                         try:
                             asyncio.get_running_loop()
                             # Already inside an async event loop — dispatch() cannot
@@ -332,6 +339,8 @@ class Node9Agent:
                                 "In an async context, call it directly with 'await'."
                             )
                         except RuntimeError:
+                            # RuntimeError here means "no running event loop" —
+                            # the only error get_running_loop() raises. Safe to run.
                             result = asyncio.run(result)
                     return str(result) if result is not None else ""
                 except ActionDeniedException as e:
@@ -348,7 +357,6 @@ class Node9Agent:
 
     def _dispatch(self, tool_name: str, tool_input: dict) -> str:
         """Deprecated alias for dispatch(). Use dispatch() instead."""
-        import warnings
         warnings.warn(
             "Node9Agent._dispatch() is deprecated — use .dispatch() instead.",
             DeprecationWarning,

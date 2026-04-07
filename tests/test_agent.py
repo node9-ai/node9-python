@@ -206,12 +206,14 @@ class TestInternalDecorator:
         result = agent._git_push("main")
         assert result == "pushed:main"
 
-    def test_internal_logs_to_stdout(self, tmp_path, capsys):
+    def test_internal_logs_to_stderr(self, tmp_path, capsys):
+        # @internal writes to stderr so LLM parsers reading stdout are not corrupted
         agent = SimpleAgent(workspace=str(tmp_path))
         agent._git_push("dev")
         captured = capsys.readouterr()
-        assert "internal" in captured.out
-        assert "_git_push" in captured.out
+        assert "internal" in captured.err
+        assert "_git_push" in captured.err
+        assert "internal" not in captured.out  # must NOT appear on stdout
 
     def test_internal_on_public_method_warns(self):
         """@internal on a public method (no leading _) emits RuntimeWarning."""
@@ -259,6 +261,29 @@ class TestBuildTools:
         agent = SimpleAgent(workspace=str(tmp_path))
         names = {t["name"] for t in agent._build_tools()}
         assert "_git_push" not in names
+
+    def test_multi_level_inheritance(self, tmp_path):
+        """@tool methods on all levels of the MRO are visible in _build_tools()."""
+        class Base(Node9Agent):
+            @tool("base_op")
+            def base_op(self, x: str) -> str:
+                return x
+
+        class Mid(Base):
+            @tool("mid_op")
+            def mid_op(self, y: str) -> str:
+                return y
+
+        class Leaf(Mid):
+            @tool("leaf_op")
+            def leaf_op(self, z: str) -> str:
+                return z
+
+        agent = Leaf(workspace=str(tmp_path))
+        names = {t["name"] for t in agent._build_tools()}
+        assert "base_op" in names
+        assert "mid_op" in names
+        assert "leaf_op" in names
 
     def test_neutral_format_uses_parameters_key(self, tmp_path):
         agent = SimpleAgent(workspace=str(tmp_path))

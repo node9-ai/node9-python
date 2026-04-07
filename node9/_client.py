@@ -13,6 +13,7 @@ import platform
 import re
 import shutil
 import subprocess
+import sys
 import time
 import http.client
 import urllib.error
@@ -145,10 +146,9 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     except OSError as e:
         # Audit write failed (read-only fs, container, permissions).
         # Never crash the agent, but surface the failure so it's not silent.
-        import sys
         print(f"  [node9 offline] WARNING: audit write failed ({e})", file=sys.stderr, flush=True)
     else:
-        print(f"  [node9 offline] {tool_name} — logged to {audit_path}", flush=True)
+        print(f"  [node9 offline] {tool_name} — logged to {audit_path}", file=sys.stderr, flush=True)
 
 
 def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> None:
@@ -224,7 +224,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
     if not _REQUEST_ID_RE.match(str(request_id)):
         raise RuntimeError(f"[Node9] Invalid requestId format: {request_id!r}")
 
-    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
+    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", file=sys.stderr, flush=True)
 
     poll_timeout = max(30, min(3600, int(os.environ.get("NODE9_CLOUD_TIMEOUT", "600"))))
     status_url = f"{api_url}/status/{request_id}"
@@ -302,7 +302,7 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     if not request_id:
         raise RuntimeError(f"[Node9] Unexpected daemon response: {result}")
 
-    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", flush=True)
+    print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", file=sys.stderr, flush=True)
     decision_result = _get(f"/wait/{request_id}")
     decision = decision_result.get("decision", "deny")
 
