@@ -1,10 +1,6 @@
 # node9-python
 
-<<<<<<< dev
-Execution security for Python AI agents — audit, policy enforcement, and DLP in one package.
-=======
-Execution security for Python AI agents, one decorator, zero config.
->>>>>>> main
+Execution security for Python AI agents — audit, policy enforcement, and DLP in one package. One decorator, zero config.
 
 Works two ways:
 - **`@protect`** — add governance to any existing agent (LangChain, CrewAI, AutoGen, plain Python)
@@ -45,6 +41,8 @@ def write_file(path: str, content: str) -> None:
 @protect("bash")
 def run_shell(command: str) -> str:
     import subprocess
+    # Note: @protect gates on human approval but does NOT sanitize `command`.
+    # Use shlex.split() + shell=False for untrusted input.
     return subprocess.check_output(command, shell=True, text=True)
 
 try:
@@ -130,7 +128,9 @@ class CiAgent(Node9Agent):
     def run_tests(self, command: str) -> str:
         """Run the test suite and return output."""
         import subprocess
-        return subprocess.check_output(command, shell=True, text=True)
+        # Note: @protect gates on human approval but does NOT sanitize `command`.
+    # Use shlex.split() + shell=False for untrusted input.
+    return subprocess.check_output(command, shell=True, text=True)
 
     @tool("write_code")
     def write_code(self, filename: str, content: str) -> str:
@@ -164,7 +164,7 @@ while True:
     results = []
     for block in response.content:
         if block.type == "tool_use":
-            result = agent._dispatch(block.name, block.input)  # DLP + audit happen here
+            result = agent.dispatch(block.name, block.input)  # DLP + audit happen here
             results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
     messages.append({"role": "user", "content": results})
 ```
@@ -215,7 +215,7 @@ Patterns detected: AWS keys, GitHub tokens, Slack tokens, OpenAI keys, Stripe ke
 
 ```python
 try:
-    agent._dispatch("delete_file", {"path": "/etc/hosts"})
+    agent.dispatch("delete_file", {"path": "/etc/hosts"})
 except ActionDeniedException as e:
     # e.negotiation = "Action 'delete_file' was blocked by Node9: policy. Choose a different approach."
     response = llm.invoke(e.negotiation)

@@ -256,6 +256,13 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     Raises ActionDeniedException if the action is denied.
     """
     if os.environ.get("NODE9_SKIP") == "1":
+        import warnings
+        warnings.warn(
+            f"[Node9] NODE9_SKIP=1 — governance bypassed for '{tool_name}'. "
+            "Do not use in production.",
+            stacklevel=3,
+        )
+        _offline_audit(tool_name, {**args, "_skip": True}, run_id=run_id)
         return
 
     if os.environ.get("NODE9_API_KEY"):

@@ -78,20 +78,24 @@ def tool(tool_name: str | Callable):
             bound.apply_defaults()
             call_args = {k: v for k, v in bound.arguments.items() if k != "self"}
 
-            # DLP scan
-            filename = call_args.get("filename") or call_args.get("path") or ""
-            content  = call_args.get("content") or ""
-            if filename or content:
-                hit = dlp_scan(str(filename), str(content))
-                if hit:
-                    raise ActionDeniedException(name, f"DLP blocked: {hit}")
+            # DLP scan — all string args, not just well-known names
+            path_arg = call_args.get("filename") or call_args.get("path") or ""
+            all_content = "\n".join(
+                str(v) for v in call_args.values() if isinstance(v, str)
+            )
+            hit = dlp_scan(str(path_arg), all_content)
+            if hit:
+                raise ActionDeniedException(name, f"DLP blocked: {hit}")
 
-            # Path safety
-            if filename and hasattr(self, "_workspace") and self._workspace:
-                try:
-                    safe_path(str(filename), self._workspace)
-                except ValueError as e:
-                    raise ActionDeniedException(name, str(e)) from e
+            # Path safety — any arg that looks like a file path
+            if hasattr(self, "_workspace") and self._workspace:
+                for v in call_args.values():
+                    if isinstance(v, str) and ("/" in v or "\\" in v):
+                        try:
+                            safe_path(v, self._workspace)
+                        except ValueError as e:
+                            raise ActionDeniedException(name, str(e)) from e
+                        break
 
             run_id = getattr(self, "_run_id", "")
             evaluate(name, call_args, run_id=run_id)
@@ -114,8 +118,10 @@ def internal(fn: Callable) -> Callable:
     """
     Marks a Node9Agent method as infrastructure (git plumbing, workspace setup).
 
-    - Never calls evaluate() — no SaaS call, no blocking
-    - Logs locally only: [node9 internal] method_name(args)
+    - Never calls evaluate() — no SaaS call, no blocking, no DLP scan
+    - Logs to stdout: [node9 internal] method_name(args)
+    - Use only for non-agent-decision code (git, workspace setup, file plumbing).
+      Do NOT use to bypass governance on agent-controlled actions.
     """
     @functools.wraps(fn)
     def wrapper(self: "Node9Agent", *args: Any, **kwargs: Any) -> Any:
@@ -138,21 +144,33 @@ class Node9Agent:
     Provides:
     - Agent identity and policy (set once, applied to every tool call)
     - Per-run UUID for grouping audit entries in the dashboard
-    - _build_tools()  — neutral tool spec for use with any LLM
     - build_tools_anthropic() — Anthropic input_schema format
     - build_tools_openai()    — OpenAI parameters format
-    - _dispatch()     — route LLM tool calls to @tool methods
+    - dispatch()      — route LLM tool calls to @tool methods (primary integration point)
 
     The LLM loop is NOT here — implement it in your subclass using whichever
     framework or API client you need.
+
+    When to use Node9Agent vs @protect:
+    - Node9Agent: greenfield agents where you control the tool definitions
+    - @protect:   retrofitting governance onto existing functions/classes
     """
 
     agent_name: str = ""
     policy:     str = "audit"
 
     def __init__(self, workspace: str = ""):
-        self._run_id    = str(uuid.uuid4())
-        self._workspace = os.path.realpath(workspace) if workspace else os.getcwd()
+        self._run_id = str(uuid.uuid4())
+        if workspace:
+            resolved = os.path.realpath(workspace)
+            if not os.path.isdir(resolved):
+                raise ValueError(
+                    f"Node9Agent workspace does not exist: {workspace!r}. "
+                    "Create the directory before constructing the agent."
+                )
+            self._workspace = resolved
+        else:
+            self._workspace = os.getcwd()
 
         from . import _config
         _config.AGENT_NAME   = self.agent_name or type(self).__name__
@@ -239,10 +257,14 @@ class Node9Agent:
     # Dispatch
     # -------------------------------------------------------------------------
 
-    def _dispatch(self, tool_name: str, tool_input: dict) -> str:
+    def dispatch(self, tool_name: str, tool_input: dict) -> str:
         """
         Route a tool call by name to the matching @tool method.
         Returns a string result — or negotiation text if the action was denied.
+
+        This is the primary integration point for LLM loops:
+            result = agent.dispatch(block.name, block.input)  # Anthropic
+            result = agent.dispatch(call.function.name, json.loads(call.function.arguments))  # OpenAI
         """
         for attr_name in dir(type(self)):
             method = getattr(type(self), attr_name, None)
@@ -257,3 +279,13 @@ class Node9Agent:
                 except Exception as e:
                     return f"Error: {e}"
         return f"Unknown tool: {tool_name}"
+
+    def _dispatch(self, tool_name: str, tool_input: dict) -> str:
+        """Deprecated alias for dispatch(). Use dispatch() instead."""
+        import warnings
+        warnings.warn(
+            "Node9Agent._dispatch() is deprecated — use .dispatch() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.dispatch(tool_name, tool_input)
