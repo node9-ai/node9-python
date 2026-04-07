@@ -354,6 +354,53 @@ class TestDispatch:
 
 
 # ---------------------------------------------------------------------------
+# async @tool via dispatch()
+# ---------------------------------------------------------------------------
+
+class TestAsyncTool:
+    def test_async_tool_direct_call_works(self, tmp_path):
+        """Calling an async @tool method directly returns an awaitable."""
+        import asyncio
+
+        class AsyncAgent(Node9Agent):
+            @tool("async_task")
+            async def async_task(self, x: str) -> str:
+                return f"done:{x}"
+
+        agent = AsyncAgent(workspace=str(tmp_path))
+        with patch(EVAL_PATCH):
+            result = asyncio.run(agent.async_task("hi"))
+        assert result == "done:hi"
+
+    def test_async_tool_via_dispatch_no_loop(self, tmp_path):
+        """dispatch() runs async tools to completion when no event loop is running."""
+        class AsyncAgent(Node9Agent):
+            @tool("async_task")
+            async def async_task(self, x: str) -> str:
+                return f"done:{x}"
+
+        agent = AsyncAgent(workspace=str(tmp_path))
+        with patch(EVAL_PATCH):
+            result = agent.dispatch("async_task", {"x": "hello"})
+        assert result == "done:hello"
+
+    def test_async_tool_dispatch_returns_string_not_coroutine(self, tmp_path):
+        """dispatch() must not return a raw coroutine object."""
+        import inspect
+
+        class AsyncAgent(Node9Agent):
+            @tool("async_task")
+            async def async_task(self, x: str) -> str:
+                return f"done:{x}"
+
+        agent = AsyncAgent(workspace=str(tmp_path))
+        with patch(EVAL_PATCH):
+            result = agent.dispatch("async_task", {"x": "test"})
+        assert not inspect.iscoroutine(result), "dispatch() returned a raw coroutine"
+        assert isinstance(result, str)
+
+
+# ---------------------------------------------------------------------------
 # new_session
 # ---------------------------------------------------------------------------
 

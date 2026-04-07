@@ -142,9 +142,13 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     try:
         with open(audit_path, "a") as f:
             f.write(json.dumps(entry, default=str) + "\n")
-    except OSError:
-        pass  # never crash the agent due to audit failure
-    print(f"  [node9 offline] {tool_name} — logged to {audit_path}", flush=True)
+    except OSError as e:
+        # Audit write failed (read-only fs, container, permissions).
+        # Never crash the agent, but surface the failure so it's not silent.
+        import sys
+        print(f"  [node9 offline] WARNING: audit write failed ({e})", file=sys.stderr, flush=True)
+    else:
+        print(f"  [node9 offline] {tool_name} — logged to {audit_path}", flush=True)
 
 
 def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> None:

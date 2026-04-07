@@ -38,13 +38,16 @@ def write_file(path: str, content: str) -> None:
     with open(path, "w") as f:
         f.write(content)
 
-@protect("bash")
-def run_shell(command: str) -> str:
-    # WARNING: @protect gates on human approval but does NOT sanitize `command`.
-    # shlex.split avoids invoking a shell interpreter, but does NOT prevent the LLM
-    # from running arbitrary executables. In production, validate/allowlist commands.
-    import shlex, subprocess
-    return subprocess.check_output(shlex.split(command), text=True)
+_ALLOWED_COMMANDS = {"pytest", "ruff", "mypy", "black"}
+
+@protect("run_tests")
+def run_tests(tool: str) -> str:
+    # Allowlist-based: only pre-approved CLI tools can be invoked.
+    # Never pass raw LLM strings to subprocess — enumerate safe commands explicitly.
+    if tool not in _ALLOWED_COMMANDS:
+        raise ValueError(f"Tool {tool!r} is not in the allowed list: {_ALLOWED_COMMANDS}")
+    import subprocess
+    return subprocess.check_output([tool], text=True)
 
 try:
     write_file("/etc/hosts", "bad content")
@@ -125,11 +128,15 @@ class CiAgent(Node9Agent):
     agent_name = "ci-code-review"
     policy     = "audit"
 
+    _ALLOWED_SUITES = {"pytest", "pytest --tb=short", "ruff check ."}
+
     @tool("run_tests")
-    def run_tests(self, command: str) -> str:
-        """Run the test suite and return output."""
+    def run_tests(self, suite: str) -> str:
+        """Run an allowlisted test suite and return output."""
         import shlex, subprocess
-        return subprocess.check_output(shlex.split(command), text=True)
+        if suite not in self._ALLOWED_SUITES:
+            raise ValueError(f"Suite {suite!r} not in allowed list: {self._ALLOWED_SUITES}")
+        return subprocess.check_output(shlex.split(suite), text=True)
 
     @tool("write_code")
     def write_code(self, filename: str, content: str) -> str:

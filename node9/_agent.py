@@ -319,6 +319,20 @@ class Node9Agent:
             if getattr(method, _TOOL_ATTR, None) == tool_name:
                 try:
                     result = getattr(self, attr_name)(**tool_input)
+                    if inspect.iscoroutine(result):
+                        import asyncio
+                        try:
+                            asyncio.get_running_loop()
+                            # Already inside an async event loop — dispatch() cannot
+                            # await here. The caller should await the method directly:
+                            #   result = await agent.method(**tool_input)
+                            result.close()  # prevent "coroutine was never awaited" warning
+                            return (
+                                f"Error: '{tool_name}' is async. "
+                                "In an async context, call it directly with 'await'."
+                            )
+                        except RuntimeError:
+                            result = asyncio.run(result)
                     return str(result) if result is not None else ""
                 except ActionDeniedException as e:
                     return e.negotiation

@@ -54,6 +54,11 @@ def safe_path(filename: str, *, workspace: str) -> str:
     Resolve filename relative to workspace and verify it stays inside.
     Symlinks are resolved via os.path.realpath before the boundary check.
     Raises ValueError on path traversal attempts.
+
+    Exception contract:
+    - Called directly: raises ValueError (standard Python convention for bad input).
+    - Called inside a @tool method: the @tool wrapper catches ValueError and
+      re-raises it as ActionDeniedException so LLM tool loops get a uniform type.
     """
     resolved = os.path.realpath(os.path.join(workspace, filename))
     workspace_root = os.path.realpath(workspace) + os.sep
