@@ -2,6 +2,38 @@
 
 <!-- version list -->
 
+## v2.0.0 (2026-04-07)
+
+### Breaking Changes
+
+- **`Node9Agent`** base class introduced — framework-agnostic governed agent with `@tool`, `@internal`, `dispatch()`, `build_tools_anthropic()`, `build_tools_openai()`
+- **`safe_path(filename, workspace=...)`** — `workspace` is now keyword-only (prevents silent arg swap)
+- **`configure()`** — replaces direct env-var mutation; thread-safe via `threading.RLock`
+
+### New Features
+
+- `Node9Agent`: zero-dependency governed agent base class with DLP, path safety, and audit built-in
+- `@tool` decorator: DLP scan + path traversal check + `evaluate()` on every call
+- `@internal` decorator: infrastructure methods (no governance); warns if applied to a public method
+- `dispatch()`: LLM-safe router — always returns `str`, handles async tools, unknown tools return descriptive error
+- `build_tools_anthropic()` / `build_tools_openai()`: auto-generate tool specs from type annotations
+- `new_session()`: fresh `run_id` for server/multi-session deployments
+- Offline mode warns loudly when `policy=require_approval` but no daemon/API key is available
+- `NODE9_SKIP=1` emits `warnings.warn()` at import time AND per `evaluate()` call
+- All SDK status output moved to stderr (stdout stays clean for LLM tool parsers)
+
+### Migration from 1.x
+
+```python
+# Before (1.x) — positional workspace arg
+safe_path(filename, workspace_dir)
+
+# After (2.0) — keyword-only
+safe_path(filename, workspace=workspace_dir)
+```
+
+`@protect` and `configure()` are fully backwards-compatible. Only `safe_path` call sites need updating.
+
 ## v1.0.0 (2026-04-04)
 
 - Initial Release
