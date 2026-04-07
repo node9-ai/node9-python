@@ -141,7 +141,9 @@ class CiAgent(Node9Agent):
     @tool("write_code")
     def write_code(self, filename: str, content: str) -> str:
         """Write content to a file in the workspace."""
-        with open(filename, "w") as f:
+        from node9 import safe_path
+        path = safe_path(filename, workspace=self._workspace)  # traversal-safe
+        with open(path, "w") as f:
             f.write(content)
         return f"Written {filename}"
 
