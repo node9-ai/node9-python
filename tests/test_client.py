@@ -84,8 +84,8 @@ class TestEvaluate:
                 evaluate("deploy", {"server": "prod"})
 
     def test_node9_skip_env_bypasses_daemon(self, monkeypatch):
-        monkeypatch.setenv("NODE9_SKIP", "1")
-        # No mock needed — should not call urlopen at all
+        # _SKIP is read once at import time — patch the flag directly
+        monkeypatch.setattr("node9._client._SKIP", True)
         with patch("urllib.request.urlopen", side_effect=Exception("should not be called")):
             evaluate("anything", {"key": "val"})  # should not raise
 

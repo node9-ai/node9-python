@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run tests before every push. Last safety net before hitting the remote.
+set -euo pipefail
+
+echo "🧪 node9: running tests before push..."
+
+if ! python3 -m pytest tests/ -p no:anyio -q --tb=short 2>&1; then
+  echo ""
+  echo "❌ Tests failed — push blocked. Fix the failures above and try again."
+  echo "   To skip (unsafe): git push --no-verify"
+  exit 1
+fi
+
+echo "✅ All tests passed."

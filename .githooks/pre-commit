@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Run tests before every commit. Blocks the commit if any test fails.
+set -euo pipefail
+
+echo "🧪 node9: running tests before commit..."
+
+if ! python3 -m pytest tests/ -p no:anyio -q --tb=short 2>&1; then
+  echo ""
+  echo "❌ Tests failed — commit blocked. Fix the failures above and try again."
+  echo "   To skip (unsafe): git commit --no-verify"
+  exit 1
+fi
+
+echo "✅ All tests passed."

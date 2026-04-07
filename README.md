@@ -230,6 +230,20 @@ except ActionDeniedException as e:
 | `NODE9_AUTO_START` | — | Set to `1` to auto-launch the local daemon if not running. |
 | `NODE9_SKIP` | — | Set to `1` to bypass all checks. Unsafe — for unit tests only. |
 
+## Development
+
+After cloning, activate the git hooks (runs tests before every commit and push):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Run tests manually:
+
+```bash
+python3 -m pytest tests/ -p no:anyio -q
+```
+
 ## License
 
 Apache-2.0
