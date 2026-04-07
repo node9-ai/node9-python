@@ -40,10 +40,8 @@ def write_file(path: str, content: str) -> None:
 
 @protect("bash")
 def run_shell(command: str) -> str:
-    import subprocess
-    # Note: @protect gates on human approval but does NOT sanitize `command`.
-    # Use shlex.split() + shell=False for untrusted input.
-    return subprocess.check_output(command, shell=True, text=True)
+    import shlex, subprocess
+    return subprocess.check_output(shlex.split(command), text=True)
 
 try:
     write_file("/etc/hosts", "bad content")
@@ -127,10 +125,8 @@ class CiAgent(Node9Agent):
     @tool("run_tests")
     def run_tests(self, command: str) -> str:
         """Run the test suite and return output."""
-        import subprocess
-        # Note: @protect gates on human approval but does NOT sanitize `command`.
-    # Use shlex.split() + shell=False for untrusted input.
-    return subprocess.check_output(command, shell=True, text=True)
+        import shlex, subprocess
+        return subprocess.check_output(shlex.split(command), text=True)
 
     @tool("write_code")
     def write_code(self, filename: str, content: str) -> str:

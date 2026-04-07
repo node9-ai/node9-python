@@ -2,15 +2,11 @@
 node9 — Execution security for Python AI agents.
 """
 
-import threading
-
 from ._decorator import protect
 from ._exceptions import ActionDeniedException, DaemonNotFoundError
 from ._dlp import dlp_scan, safe_path
 from ._agent import Node9Agent, tool, internal
 from . import _config
-
-_configure_lock = threading.Lock()
 
 
 def configure(*, agent_name: str = "", policy: str = "") -> None:
@@ -21,11 +17,7 @@ def configure(*, agent_name: str = "", policy: str = "") -> None:
 
     policy values: "audit" | "require_approval" | "block_on_rules" | "" (SaaS default)
     """
-    with _configure_lock:
-        if agent_name:
-            _config.AGENT_NAME = agent_name
-        if policy:
-            _config.AGENT_POLICY = policy
+    _config.set_identity(agent_name=agent_name, policy=policy)
 
 
 __all__ = [

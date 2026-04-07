@@ -72,6 +72,10 @@ def tool(tool_name: Union[str, Callable]):
     - run_id    — injected automatically so all calls in one run are grouped in the dashboard
 
     Can be used as @tool or @tool("custom_name").
+
+    Note: DLP scanning only inspects top-level string arguments. Secrets nested
+    inside dicts or lists will not be caught — flatten sensitive values or call
+    dlp_scan() explicitly before passing structured data.
     """
     def decorator(fn: Callable, name: str) -> Callable:
         @functools.wraps(fn)
@@ -185,8 +189,10 @@ class Node9Agent:
             self._workspace = os.getcwd()
 
         from . import _config
-        _config.AGENT_NAME   = self.agent_name or type(self).__name__
-        _config.AGENT_POLICY = self.policy
+        _config.set_identity(
+            agent_name=self.agent_name or type(self).__name__,
+            policy=self.policy,
+        )
 
     # -------------------------------------------------------------------------
     # Tool spec builders — pick the format your LLM expects
@@ -218,6 +224,11 @@ class Node9Agent:
 
             for param_name, param in sig.parameters.items():
                 if param_name == "self":
+                    continue
+                if param.kind in (
+                    inspect.Parameter.VAR_POSITIONAL,
+                    inspect.Parameter.VAR_KEYWORD,
+                ):
                     continue
                 prop: dict[str, Any] = {"type": "string"}
                 ann = param.annotation

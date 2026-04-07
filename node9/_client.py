@@ -28,6 +28,8 @@ _DAEMON_BASE = f"http://127.0.0.1:{DAEMON_PORT}"
 _CHECK_TIMEOUT = 5      # seconds to establish connection
 _WAIT_TIMEOUT = 65      # seconds to wait for human decision
 
+_SKIP = os.environ.get("NODE9_SKIP") == "1"
+
 _CI_CONTEXT_MAX_BYTES = 10_000
 _CI_CONTEXT_ALLOWED_KEYS = {
     "tests_after", "files_changed", "issues_found", "issues_fixed",
@@ -123,8 +125,8 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     entry = {
         "ts": datetime.datetime.utcnow().isoformat() + "Z",
         "mode": "offline",
-        "agent": _config.AGENT_NAME or "Python SDK",
-        "policy": _config.AGENT_POLICY or "offline",
+        "agent": (_config.get()[0] or "Python SDK"),
+        "policy": (_config.get()[1] or "offline"),
         "runId": run_id,
         "toolName": tool_name,
         "args": args,
@@ -154,14 +156,15 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
             f"[Node9] NODE9_API_URL must use HTTPS to protect credentials (got: {api_url!r})"
         )
 
+    _agent_name, _agent_policy = _config.get()
     payload: dict = {
         "toolName": tool_name,
         "args": args,
-        "agentName": _config.AGENT_NAME or "Python SDK",
-        "policy": _config.AGENT_POLICY,
+        "agentName": _agent_name or "Python SDK",
+        "policy": _agent_policy,
         "runId": run_id,
         "context": {
-            "agent": _config.AGENT_NAME or "Python SDK",
+            "agent": _agent_name or "Python SDK",
             "hostname": platform.node(),
             "platform": platform.system().lower(),
             "cwd": os.getcwd(),
@@ -255,7 +258,7 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
 
     Raises ActionDeniedException if the action is denied.
     """
-    if os.environ.get("NODE9_SKIP") == "1":
+    if _SKIP:
         import warnings
         warnings.warn(
             f"[Node9] NODE9_SKIP=1 — governance bypassed for '{tool_name}'. "
@@ -280,8 +283,8 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
         "toolName": tool_name,
         "args": args,
         "cwd": os.getcwd(),
-        "agent": _config.AGENT_NAME or "Python SDK",
-        "policy": _config.AGENT_POLICY,
+        "agent": (_config.get()[0] or "Python SDK"),
+        "policy": _config.get()[1],
         "runId": run_id,
     })
     request_id = result.get("id")
