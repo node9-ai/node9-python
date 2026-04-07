@@ -14,11 +14,11 @@ PYTHON="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}"
 PYTHON="${PYTHON:-$(command -v python3 2>/dev/null)}"
 
 if [[ -z "$PYTHON" ]]; then
-  echo "❌ node9: python3 not found on PATH. Install Python 3.9+ and try again." >&2
+  echo "❌ node9: python3 not found on PATH. Install Python 3.10+ and try again." >&2
   return 1
 fi
 
-# Sanity-check: require Python 3.9+
+# Sanity-check: require Python 3.10+ (matches pyproject.toml requires-python)
 PYVER=$("$PYTHON" -c 'import sys; print(sys.version_info >= (3,10))' 2>/dev/null)
 if [[ "$PYVER" != "True" ]]; then
   echo "❌ node9: Python 3.10+ required (found: $("$PYTHON" --version 2>&1))" >&2

@@ -24,9 +24,9 @@ def write_file(path: str, content: str) -> str:
     return f"Written to {path}"
 
 
-@tool("run_shell")
 _ALLOWED_COMMANDS = {"pytest", "ruff check .", "mypy src/"}
 
+@tool("run_shell")
 @protect("bash")
 def run_shell(command: str) -> str:
     """Execute an allowlisted shell command."""
