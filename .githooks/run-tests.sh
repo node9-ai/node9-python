@@ -9,9 +9,19 @@ set -euo pipefail
 
 CONTEXT="${1:-commit}"
 
-# Use the virtualenv Python if active, otherwise fall back to python3.
-PYTHON="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}"
-PYTHON="${PYTHON:-$(command -v python3 2>/dev/null)}"
+# Use the virtualenv Python if active, otherwise fall back to system python3.
+# Check python3 first inside the venv (most venvs only create python3, not python).
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+  if [[ -x "$VIRTUAL_ENV/bin/python3" ]]; then
+    PYTHON="$VIRTUAL_ENV/bin/python3"
+  elif [[ -x "$VIRTUAL_ENV/bin/python" ]]; then
+    PYTHON="$VIRTUAL_ENV/bin/python"
+  else
+    PYTHON="$(command -v python3 2>/dev/null)"
+  fi
+else
+  PYTHON="$(command -v python3 2>/dev/null)"
+fi
 
 if [[ -z "$PYTHON" ]]; then
   echo "❌ node9: python3 not found on PATH. Install Python 3.10+ and try again." >&2

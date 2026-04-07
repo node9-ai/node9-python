@@ -311,14 +311,21 @@ class Node9Agent:
     def dispatch(self, tool_name: str, tool_input: dict) -> str:
         """
         Route a tool call by name to the matching @tool method.
-        Returns a string result — or negotiation text if the action was denied.
+
+        Always returns a str — safe to pass directly as a tool_result to any LLM API.
+        Never raises: exceptions from the tool are caught and returned as "Error: ..." strings.
+
+          ActionDeniedException → returns e.negotiation  (denial reason for the LLM)
+          Any other exception   → returns "Error: <message>"
+          Unknown tool name     → returns "Unknown tool: '...'. Available tools: [...]"
+          Tool returns None     → returns ""
 
         This is the primary integration point for LLM loops:
             result = agent.dispatch(block.name, block.input)  # Anthropic
             result = agent.dispatch(call.function.name, json.loads(call.function.arguments))  # OpenAI
 
-        Lookup is strictly registry-based: only methods decorated with @tool are
-        reachable. Undecorated methods and arbitrary attribute names are never called.
+        Lookup is strictly registry-based: only @tool-decorated methods are reachable.
+        @internal methods and plain instance methods are never callable via dispatch().
         """
         # Lookup is strictly against the @tool decorator registry (_TOOL_ATTR marker).
         # Only methods explicitly decorated with @tool are callable via dispatch().
