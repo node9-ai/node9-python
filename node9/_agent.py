@@ -130,7 +130,20 @@ def internal(fn: Callable) -> Callable:
     - Logs to stdout: [node9 internal] method_name(args)
     - Use only for non-agent-decision code (git, workspace setup, file plumbing).
       Do NOT use to bypass governance on agent-controlled actions.
+
+    WARNING: @internal skips all governance. By convention, @internal methods
+    should have names starting with '_' to make the bypass visible at call sites.
+    A RuntimeWarning is raised if a public method name is decorated with @internal.
     """
+    import warnings
+    if not fn.__name__.startswith("_"):
+        warnings.warn(
+            f"@internal applied to public method '{fn.__name__}' — @internal skips all "
+            "governance checks. Rename to '_{fn.__name__}' or use @tool instead.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+
     @functools.wraps(fn)
     def wrapper(self: "Node9Agent", *args: Any, **kwargs: Any) -> Any:
         sig = inspect.signature(fn)
@@ -311,7 +324,13 @@ class Node9Agent:
                     return e.negotiation
                 except Exception as e:
                     return f"Error: {e}"
-        return f"Unknown tool: {tool_name}"
+        available = sorted(
+            getattr(m, _TOOL_ATTR)
+            for attr in dir(type(self))
+            if (m := getattr(type(self), attr, None)) is not None
+            and getattr(m, _TOOL_ATTR, None) is not None
+        )
+        return f"Unknown tool: {tool_name!r}. Available tools: {available}"
 
     def _dispatch(self, tool_name: str, tool_input: dict) -> str:
         """Deprecated alias for dispatch(). Use dispatch() instead."""

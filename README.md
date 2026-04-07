@@ -41,8 +41,8 @@ def write_file(path: str, content: str) -> None:
 @protect("bash")
 def run_shell(command: str) -> str:
     # WARNING: @protect gates on human approval but does NOT sanitize `command`.
-    # shlex.split prevents shell injection but still allows arbitrary executables
-    # and arguments. In production, validate/allowlist commands before calling this.
+    # shlex.split avoids invoking a shell interpreter, but does NOT prevent the LLM
+    # from running arbitrary executables. In production, validate/allowlist commands.
     import shlex, subprocess
     return subprocess.check_output(shlex.split(command), text=True)
 

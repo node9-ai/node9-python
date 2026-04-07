@@ -213,6 +213,30 @@ class TestInternalDecorator:
         assert "internal" in captured.out
         assert "_git_push" in captured.out
 
+    def test_internal_on_public_method_warns(self):
+        """@internal on a public method (no leading _) emits RuntimeWarning."""
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+
+            class BadAgent(Node9Agent):
+                @internal
+                def public_infra(self) -> str:  # public name, missing underscore
+                    return "ok"
+
+        assert any(
+            issubclass(w.category, RuntimeWarning) and "public_infra" in str(w.message)
+            for w in caught
+        ), "Expected RuntimeWarning for @internal on public method"
+
+    def test_dispatch_error_message_includes_available_tools(self, tmp_path):
+        """dispatch() with unknown tool name returns the list of available tools."""
+        agent = SimpleAgent(workspace=str(tmp_path))
+        result = agent.dispatch("no_such_tool", {})
+        assert "no_such_tool" in result
+        assert "write_file" in result
+        assert "run_cmd" in result
+
 
 # ---------------------------------------------------------------------------
 # _build_tools — neutral tool spec

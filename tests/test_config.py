@@ -1,5 +1,6 @@
 """Tests for daemon port configuration and configure() behaviour."""
 import importlib
+import threading
 import pytest
 
 from node9 import configure
@@ -42,6 +43,28 @@ class TestConfigure:
         importlib.reload(cfg)
         assert cfg.AGENT_NAME == "from-env"
         assert cfg.AGENT_POLICY == "require_approval"
+
+    def test_configure_thread_safe(self):
+        """Concurrent configure() calls must not corrupt module globals."""
+        import node9._config as cfg
+        errors = []
+
+        def set_name(name):
+            try:
+                configure(agent_name=name, policy="audit")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=set_name, args=(f"agent-{i}",)) for i in range(50)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"configure() raised in threads: {errors}"
+        # Final value is one of the valid names (not corrupted)
+        assert cfg.AGENT_NAME.startswith("agent-")
+        assert cfg.AGENT_POLICY == "audit"
 
 
 class TestDaemonPort:

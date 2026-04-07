@@ -1,18 +1,5 @@
 #!/usr/bin/env bash
 # Run tests before every commit. Blocks the commit if any test fails.
-set -euo pipefail
-
-# Use the virtualenv Python if active, otherwise fall back to python3.
-PYTHON="${VIRTUAL_ENV:+$VIRTUAL_ENV/bin/python}"
-PYTHON="${PYTHON:-$(command -v python3)}"
-
-echo "🧪 node9: running tests before commit..."
-
-if ! "$PYTHON" -m pytest tests/ -p no:anyio -q --tb=short 2>&1; then
-  echo ""
-  echo "❌ Tests failed — commit blocked. Fix the failures above and try again."
-  echo "   To skip (unsafe): git commit --no-verify"
-  exit 1
-fi
-
-echo "✅ All tests passed."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=run-tests.sh
+source "$SCRIPT_DIR/run-tests.sh" commit

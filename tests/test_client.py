@@ -89,6 +89,17 @@ class TestEvaluate:
         with patch("urllib.request.urlopen", side_effect=Exception("should not be called")):
             evaluate("anything", {"key": "val"})  # should not raise
 
+    def test_node9_skip_emits_warning_per_call(self, monkeypatch, tmp_path):
+        """evaluate() warns on every call when NODE9_SKIP=1 so misuse is visible in logs."""
+        import warnings
+        monkeypatch.setattr("node9._client._SKIP", True)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            evaluate("any_tool", {"x": 1})
+        assert any("NODE9_SKIP" in str(w.message) for w in caught), \
+            "Expected a NODE9_SKIP warning but none was emitted"
+
     def test_unknown_decision_treated_as_deny(self):
         check_resp = _make_response({"id": "req-123"})
         wait_resp = _make_response({"decision": "unknown_value"})
