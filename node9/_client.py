@@ -149,7 +149,7 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
 
     api_url = os.environ.get("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept").rstrip("/")
 
-    if not api_url.startswith("https://"):
+    if not api_url.startswith("https://") and not api_url.startswith("http://localhost"):
         raise RuntimeError(
             f"[Node9] NODE9_API_URL must use HTTPS to protect credentials (got: {api_url!r})"
         )
