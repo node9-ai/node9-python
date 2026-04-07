@@ -29,6 +29,13 @@ _CHECK_TIMEOUT = 5      # seconds to establish connection
 _WAIT_TIMEOUT = 65      # seconds to wait for human decision
 
 _SKIP = os.environ.get("NODE9_SKIP") == "1"
+if _SKIP:
+    import warnings as _warnings
+    _warnings.warn(
+        "[Node9] NODE9_SKIP=1 is set — all governance checks are disabled. "
+        "Never set this in production.",
+        stacklevel=2,
+    )
 
 _CI_CONTEXT_MAX_BYTES = 10_000
 _CI_CONTEXT_ALLOWED_KEYS = {

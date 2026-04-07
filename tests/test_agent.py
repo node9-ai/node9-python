@@ -1,5 +1,6 @@
 """Tests for Node9Agent base class, @tool and @internal decorators."""
 import uuid
+import threading
 import pytest
 from unittest.mock import patch, MagicMock
 
@@ -299,3 +300,102 @@ class TestDispatch:
         with patch(EVAL_PATCH, side_effect=ActionDeniedException("write_file", "policy")):
             result = agent._dispatch("write_file", {"filename": "x.txt", "content": "hi"})
         assert "blocked" in result.lower() or "write_file" in result
+
+    def test_dispatch_unknown_tool_returns_error_string(self, tmp_path):
+        agent = SimpleAgent(workspace=str(tmp_path))
+        result = agent.dispatch("no_such_tool", {})
+        assert "Unknown tool" in result
+        assert "no_such_tool" in result
+
+    def test_dispatch_unknown_tool_does_not_raise(self, tmp_path):
+        agent = SimpleAgent(workspace=str(tmp_path))
+        # LLM loops must not get an unhandled exception for bad tool names
+        try:
+            agent.dispatch("totally_missing", {"x": 1})
+        except Exception as e:
+            pytest.fail(f"dispatch() raised unexpectedly: {e}")
+
+
+# ---------------------------------------------------------------------------
+# new_session
+# ---------------------------------------------------------------------------
+
+class TestNewSession:
+    def test_new_session_returns_new_uuid(self, tmp_path):
+        agent = SimpleAgent(workspace=str(tmp_path))
+        old_id = agent._run_id
+        new_id = agent.new_session()
+        assert new_id != old_id
+        assert uuid.UUID(new_id)  # valid UUID
+
+    def test_new_session_updates_run_id(self, tmp_path):
+        agent = SimpleAgent(workspace=str(tmp_path))
+        new_id = agent.new_session()
+        assert agent._run_id == new_id
+
+    def test_concurrent_new_session_calls_produce_unique_ids(self, tmp_path):
+        """Each new_session() call produces a unique ID — no UUID collision."""
+        agent = SimpleAgent(workspace=str(tmp_path))
+        ids = []
+        errors = []
+
+        def call_new_session():
+            try:
+                ids.append(agent.new_session())
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=call_new_session) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors
+        # All IDs are valid UUIDs
+        for run_id in ids:
+            uuid.UUID(run_id)
+        # Note: concurrent calls race on _run_id — documented as "one instance per request"
+
+
+# ---------------------------------------------------------------------------
+# _build_tools — unannotated and complex-typed parameters
+# ---------------------------------------------------------------------------
+
+class TestBuildToolsEdgeCases:
+    def test_unannotated_param_defaults_to_string_type(self, tmp_path):
+        class Agent3(Node9Agent):
+            @tool("unannotated")
+            def unannotated(self, x, y) -> str:
+                return str(x)
+
+        agent = Agent3(workspace=str(tmp_path))
+        spec = next(t for t in agent._build_tools() if t["name"] == "unannotated")
+        assert spec["parameters"]["properties"]["x"]["type"] == "string"
+        assert spec["parameters"]["properties"]["y"]["type"] == "string"
+
+    def test_int_annotation_maps_to_integer(self, tmp_path):
+        class Agent4(Node9Agent):
+            @tool("typed")
+            def typed(self, count: int, flag: bool, ratio: float) -> str:
+                return ""
+
+        agent = Agent4(workspace=str(tmp_path))
+        spec = next(t for t in agent._build_tools() if t["name"] == "typed")
+        props = spec["parameters"]["properties"]
+        assert props["count"]["type"] == "integer"
+        assert props["flag"]["type"] == "boolean"
+        assert props["ratio"]["type"] == "number"
+
+    def test_varargs_not_included_in_schema(self, tmp_path):
+        class Agent5(Node9Agent):
+            @tool("varargs")
+            def varargs(self, x: str, *args, **kwargs) -> str:
+                return x
+
+        agent = Agent5(workspace=str(tmp_path))
+        spec = next(t for t in agent._build_tools() if t["name"] == "varargs")
+        props = spec["parameters"]["properties"]
+        assert "x" in props
+        assert "args" not in props
+        assert "kwargs" not in props

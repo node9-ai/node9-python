@@ -147,26 +147,36 @@ class TestSensitivePathDetection:
 
 class TestSafePath:
     def test_normal_file_resolves(self, tmp_path):
-        result = safe_path("src/main.py", str(tmp_path))
+        result = safe_path("src/main.py", workspace=str(tmp_path))
         assert result.startswith(str(tmp_path))
         assert result.endswith("main.py")
 
     def test_traversal_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="Path traversal"):
-            safe_path("../../etc/passwd", str(tmp_path))
+            safe_path("../../etc/passwd", workspace=str(tmp_path))
 
     def test_absolute_path_outside_workspace_rejected(self, tmp_path):
         with pytest.raises(ValueError, match="Path traversal"):
-            safe_path("/etc/passwd", str(tmp_path))
+            safe_path("/etc/passwd", workspace=str(tmp_path))
 
     def test_nested_path_allowed(self, tmp_path):
-        result = safe_path("a/b/c/file.txt", str(tmp_path))
+        result = safe_path("a/b/c/file.txt", workspace=str(tmp_path))
         assert "file.txt" in result
 
     def test_dot_prefix_stays_inside(self, tmp_path):
-        result = safe_path("./file.txt", str(tmp_path))
+        result = safe_path("./file.txt", workspace=str(tmp_path))
         assert result.startswith(str(tmp_path))
 
     def test_error_message_contains_filename(self, tmp_path):
         with pytest.raises(ValueError, match="passwd"):
-            safe_path("../../etc/passwd", str(tmp_path))
+            safe_path("../../etc/passwd", workspace=str(tmp_path))
+
+    def test_symlink_traversal_rejected(self, tmp_path):
+        """A symlink pointing outside the workspace must be rejected."""
+        import os
+        outside = tmp_path.parent / "outside.txt"
+        outside.write_text("secret")
+        link = tmp_path / "escape.txt"
+        os.symlink(str(outside), str(link))
+        with pytest.raises(ValueError, match="Path traversal"):
+            safe_path("escape.txt", workspace=str(tmp_path))

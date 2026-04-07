@@ -23,7 +23,7 @@ Usage:
         @tool("write_code")
         def write_code(self, filename: str, content: str) -> str:
             from node9 import safe_path
-            path = safe_path(filename, self._workspace)  # workspace-relative, traversal-safe
+            path = safe_path(filename, workspace=self._workspace)  # workspace-relative, traversal-safe
             with open(path, "w") as f:
                 f.write(content)
             return f"written:{filename}"
@@ -99,7 +99,7 @@ def tool(tool_name: Union[str, Callable]):
                 for v in call_args.values():
                     if isinstance(v, str) and ("/" in v or "\\" in v):
                         try:
-                            safe_path(v, self._workspace)
+                            safe_path(v, workspace=self._workspace)
                         except ValueError as e:
                             raise ActionDeniedException(name, str(e)) from e
                         break
@@ -171,6 +171,10 @@ class Node9Agent:
         Start a new session — generates a fresh run_id so audit entries are
         grouped correctly. Call at the start of each user request in server deployments.
         Returns the new run_id.
+
+        Thread safety: do NOT share a single Node9Agent instance across concurrent
+        requests. _run_id assignment is not atomic. Use one instance per request
+        (or per thread) to avoid run_id races in concurrent web servers.
         """
         self._run_id = str(uuid.uuid4())
         return self._run_id

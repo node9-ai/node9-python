@@ -49,9 +49,10 @@ def dlp_scan(filename: str, content: str) -> str | None:
     return None
 
 
-def safe_path(filename: str, workspace: str) -> str:
+def safe_path(filename: str, *, workspace: str) -> str:
     """
     Resolve filename relative to workspace and verify it stays inside.
+    Symlinks are resolved via os.path.realpath before the boundary check.
     Raises ValueError on path traversal attempts.
     """
     resolved = os.path.realpath(os.path.join(workspace, filename))

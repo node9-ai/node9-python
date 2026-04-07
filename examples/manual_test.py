@@ -62,10 +62,10 @@ print()
 # ── 5. safe_path ─────────────────────────────────────────────────────────────
 print("--- safe_path ---")
 with tempfile.TemporaryDirectory() as workspace:
-    resolved = safe_path("src/main.py", workspace)
+    resolved = safe_path("src/main.py", workspace=workspace)
     print(f"  safe_path resolved: {resolved}")
     try:
-        safe_path("../../etc/passwd", workspace)
+        safe_path("../../etc/passwd", workspace=workspace)
         print("  traversal: NOT blocked (BUG)")
     except ValueError as e:
         print(f"  traversal blocked: {e}")
