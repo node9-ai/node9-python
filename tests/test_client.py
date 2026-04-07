@@ -298,6 +298,23 @@ class TestOfflineMode:
             result = evaluate("bash", {"command": "ls"})
         assert result is None
 
+    def test_offline_with_require_approval_policy_warns(self, monkeypatch, tmp_path):
+        """Offline auto-approve must warn loudly when policy is require_approval."""
+        import warnings
+        import node9._config as cfg
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "require_approval")
+        with patch("node9._client._daemon_reachable", return_value=False):
+            with warnings.catch_warnings(record=True) as caught:
+                warnings.simplefilter("always")
+                evaluate("deploy", {"target": "prod"})
+        assert any(
+            issubclass(w.category, RuntimeWarning) and "require_approval" in str(w.message)
+            for w in caught
+        ), "Expected RuntimeWarning for offline degradation under require_approval policy"
+
 
 class TestConfigure:
     def test_configure_sets_agent_name(self):

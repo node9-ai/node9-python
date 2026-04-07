@@ -127,6 +127,16 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     Used when neither NODE9_API_KEY nor local daemon is available.
     """
     import datetime
+    _, policy = _config.get()
+    if policy == "require_approval":
+        import warnings
+        warnings.warn(
+            f"[Node9] Governance degraded to offline/auto-approve for '{tool_name}' — "
+            "policy is 'require_approval' but no daemon or API key is available. "
+            "Start the node9 daemon or set NODE9_API_KEY to enforce approvals.",
+            RuntimeWarning,
+            stacklevel=4,
+        )
     audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
     os.makedirs(audit_dir, exist_ok=True)
     audit_path = os.path.join(audit_dir, "audit.log")

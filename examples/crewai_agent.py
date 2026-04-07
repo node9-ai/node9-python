@@ -25,11 +25,16 @@ def write_file(path: str, content: str) -> str:
 
 
 @tool("run_shell")
+_ALLOWED_COMMANDS = {"pytest", "ruff check .", "mypy src/"}
+
 @protect("bash")
 def run_shell(command: str) -> str:
-    """Execute a shell command."""
-    import subprocess
-    return subprocess.check_output(command, shell=True, text=True)
+    """Execute an allowlisted shell command."""
+    import shlex, subprocess
+    # Allowlist-only: never pass LLM-controlled strings to shell=True.
+    if command not in _ALLOWED_COMMANDS:
+        raise ValueError(f"Command {command!r} not in allowed list")
+    return subprocess.check_output(shlex.split(command), text=True)
 
 
 @tool("deploy_service")
