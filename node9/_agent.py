@@ -16,12 +16,15 @@ Usage:
 
         @tool("run_tests")
         def run_tests(self, command: str) -> str:
-            import subprocess
-            return subprocess.check_output(command, shell=True, text=True)
+            import shlex, subprocess
+            # Use shell=False to avoid injection — split the command string safely
+            return subprocess.check_output(shlex.split(command), text=True)
 
         @tool("write_code")
         def write_code(self, filename: str, content: str) -> str:
-            with open(filename, "w") as f:
+            from node9 import safe_path
+            path = safe_path(filename, self._workspace)  # workspace-relative, traversal-safe
+            with open(path, "w") as f:
                 f.write(content)
             return f"written:{filename}"
 
@@ -40,14 +43,14 @@ Usage:
     #   Custom:    tools = agent._build_tools()  # neutral format
     #
     # Dispatch tool calls from the LLM response:
-    #   result = agent._dispatch(tool_name, tool_input)
+    #   result = agent.dispatch(tool_name, tool_input)
 """
 
 import functools
 import inspect
 import os
 import uuid
-from typing import Any, Callable
+from typing import Any, Callable, Union
 
 from ._client import evaluate
 from ._dlp import dlp_scan, safe_path
@@ -58,7 +61,7 @@ _TOOL_ATTR     = "_node9_tool"
 _INTERNAL_ATTR = "_node9_internal"
 
 
-def tool(tool_name: str | Callable):
+def tool(tool_name: Union[str, Callable]):
     """
     Marks a Node9Agent method as a governed tool.
 
@@ -78,14 +81,14 @@ def tool(tool_name: str | Callable):
             bound.apply_defaults()
             call_args = {k: v for k, v in bound.arguments.items() if k != "self"}
 
-            # DLP scan — all string args, not just well-known names
-            path_arg = call_args.get("filename") or call_args.get("path") or ""
-            all_content = "\n".join(
-                str(v) for v in call_args.values() if isinstance(v, str)
-            )
-            hit = dlp_scan(str(path_arg), all_content)
-            if hit:
-                raise ActionDeniedException(name, f"DLP blocked: {hit}")
+            # DLP scan — run once per string arg as both path and content candidate
+            # This catches sensitive paths regardless of parameter name (e.g. dest, target)
+            string_args = [str(v) for v in call_args.values() if isinstance(v, str)]
+            all_content = "\n".join(string_args)
+            for candidate in string_args:
+                hit = dlp_scan(candidate, all_content)
+                if hit:
+                    raise ActionDeniedException(name, f"DLP blocked: {hit}")
 
             # Path safety — any arg that looks like a file path
             if hasattr(self, "_workspace") and self._workspace:
@@ -159,8 +162,17 @@ class Node9Agent:
     agent_name: str = ""
     policy:     str = "audit"
 
-    def __init__(self, workspace: str = ""):
+    def new_session(self) -> str:
+        """
+        Start a new session — generates a fresh run_id so audit entries are
+        grouped correctly. Call at the start of each user request in server deployments.
+        Returns the new run_id.
+        """
         self._run_id = str(uuid.uuid4())
+        return self._run_id
+
+    def __init__(self, workspace: str = ""):
+        self._run_id = str(uuid.uuid4())  # one run_id per instance; call new_session() per request
         if workspace:
             resolved = os.path.realpath(workspace)
             if not os.path.isdir(resolved):

@@ -33,9 +33,14 @@ __all__ = [
     "protect",
     "configure",
     # Agent framework
-    "Node9Agent",
-    "tool",
-    "internal",
+    "Node9Agent",   # base class — subclass and use @tool / @internal
+    "tool",         # decorator: governed tool (DLP + audit + policy)
+    "internal",     # decorator: infrastructure method (no governance)
+    # Node9Agent methods (documented here for IDE discoverability)
+    # .build_tools_anthropic() — Anthropic input_schema format
+    # .build_tools_openai()    — OpenAI function format
+    # .dispatch(name, input)   — route LLM tool call to @tool method
+    # .new_session()           — fresh run_id for server/multi-session deployments
     # DLP utilities
     "dlp_scan",
     "safe_path",
