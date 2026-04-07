@@ -176,6 +176,19 @@ class TestToolPathSafety:
                 pass
         mock_eval.assert_not_called()
 
+    def test_all_path_args_are_checked_not_just_first(self, tmp_path):
+        """Path traversal in any arg (not just the first) must be caught."""
+        class MultiPathAgent(Node9Agent):
+            @tool("copy")
+            def copy(self, src: str, dest: str) -> str:
+                return f"copied:{src}->{dest}"
+
+        agent = MultiPathAgent(workspace=str(tmp_path))
+        with patch(EVAL_PATCH):
+            # First arg safe, second arg is traversal — must still be blocked
+            with pytest.raises(ActionDeniedException):
+                agent.copy("safe.txt", "../../etc/passwd")
+
 
 # ---------------------------------------------------------------------------
 # @internal decorator

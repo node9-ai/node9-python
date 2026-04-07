@@ -94,7 +94,9 @@ def tool(tool_name: Union[str, Callable]):
                 if hit:
                     raise ActionDeniedException(name, f"DLP blocked: {hit}")
 
-            # Path safety — any arg that looks like a file path
+            # Path safety — check ALL string args that look like file paths.
+            # We check every arg regardless of parameter name so that parameters
+            # named dest, output, filepath, etc. are protected the same as filename.
             if hasattr(self, "_workspace") and self._workspace:
                 for v in call_args.values():
                     if isinstance(v, str) and ("/" in v or "\\" in v):
@@ -102,7 +104,6 @@ def tool(tool_name: Union[str, Callable]):
                             safe_path(v, workspace=self._workspace)
                         except ValueError as e:
                             raise ActionDeniedException(name, str(e)) from e
-                        break
 
             run_id = getattr(self, "_run_id", "")
             evaluate(name, call_args, run_id=run_id)
@@ -292,7 +293,12 @@ class Node9Agent:
         This is the primary integration point for LLM loops:
             result = agent.dispatch(block.name, block.input)  # Anthropic
             result = agent.dispatch(call.function.name, json.loads(call.function.arguments))  # OpenAI
+
+        Lookup is strictly registry-based: only methods decorated with @tool are
+        reachable. Undecorated methods and arbitrary attribute names are never called.
         """
+        # Lookup is strictly against the @tool decorator registry (_TOOL_ATTR marker).
+        # Only methods explicitly decorated with @tool are callable via dispatch().
         for attr_name in dir(type(self)):
             method = getattr(type(self), attr_name, None)
             if method is None:

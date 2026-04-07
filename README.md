@@ -40,6 +40,9 @@ def write_file(path: str, content: str) -> None:
 
 @protect("bash")
 def run_shell(command: str) -> str:
+    # WARNING: @protect gates on human approval but does NOT sanitize `command`.
+    # shlex.split prevents shell injection but still allows arbitrary executables
+    # and arguments. In production, validate/allowlist commands before calling this.
     import shlex, subprocess
     return subprocess.check_output(shlex.split(command), text=True)
 
@@ -228,7 +231,7 @@ except ActionDeniedException as e:
 | `NODE9_AGENT_POLICY` | — | `audit`, `require_approval`, or `block_on_rules`. |
 | `NODE9_DAEMON_PORT` | `7391` | Local daemon port. |
 | `NODE9_AUTO_START` | — | Set to `1` to auto-launch the local daemon if not running. |
-| `NODE9_SKIP` | — | Set to `1` to bypass all checks. Unsafe — for unit tests only. |
+| `NODE9_SKIP` | — | Set to `1` to bypass all checks. **Never set in production** — disables all governance. For unit tests only. If set, a warning is emitted at import time. |
 
 ## Development
 

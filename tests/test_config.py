@@ -27,6 +27,22 @@ class TestConfigure:
         assert cfg.AGENT_NAME == "kept"
         assert cfg.AGENT_POLICY == "audit"
 
+    def test_configure_wins_over_env_var(self, monkeypatch):
+        """configure() called after import overrides env var defaults."""
+        monkeypatch.setenv("NODE9_AGENT_NAME", "env-agent")
+        importlib.reload(cfg)
+        assert cfg.AGENT_NAME == "env-agent"
+        configure(agent_name="runtime-agent")
+        assert cfg.AGENT_NAME == "runtime-agent"
+
+    def test_env_var_is_baseline_before_configure(self, monkeypatch):
+        """Without configure(), env var sets the identity."""
+        monkeypatch.setenv("NODE9_AGENT_NAME", "from-env")
+        monkeypatch.setenv("NODE9_AGENT_POLICY", "require_approval")
+        importlib.reload(cfg)
+        assert cfg.AGENT_NAME == "from-env"
+        assert cfg.AGENT_POLICY == "require_approval"
+
 
 class TestDaemonPort:
     def test_default_port(self, monkeypatch):
