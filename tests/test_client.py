@@ -315,6 +315,26 @@ class TestOfflineMode:
             result = evaluate("bash", {"command": "ls"})
         assert result is None
 
+    def test_offline_require_approval_does_not_write_audit_log(self, monkeypatch, tmp_path):
+        """require_approval raise must NOT write an audit log entry.
+
+        The action was not approved — logging it as 'allow' would be forensically
+        wrong and misleading. Operators should see the raised exception, fix
+        connectivity, and retry.
+        """
+        import node9._config as cfg
+        monkeypatch.delenv("NODE9_API_KEY", raising=False)
+        monkeypatch.delenv("NODE9_AUTO_START", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setattr(cfg, "AGENT_POLICY", "require_approval")
+        audit_path = tmp_path / ".node9" / "audit.log"
+
+        with patch("node9._client._daemon_reachable", return_value=False):
+            with pytest.raises(DaemonNotFoundError):
+                evaluate("deploy", {"target": "prod"})
+
+        assert not audit_path.exists(), "Audit log must not be written when require_approval raises"
+
     def test_offline_with_require_approval_policy_raises(self, monkeypatch, tmp_path):
         """require_approval + no daemon/API key must raise DaemonNotFoundError (fail-closed).
 

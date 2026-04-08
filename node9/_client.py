@@ -132,6 +132,10 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
         # Fail-closed: require_approval means governance must be enforced.
         # Auto-approving silently would contradict the policy name and create
         # a false sense of security. Raise so operators see the misconfiguration.
+        #
+        # Intentionally no audit log entry here: the action was NOT approved —
+        # raising is the terminal path. The operator must fix the connectivity
+        # issue (start daemon or set NODE9_API_KEY) and retry.
         raise DaemonNotFoundError(DAEMON_PORT)
     audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
     os.makedirs(audit_dir, exist_ok=True)
