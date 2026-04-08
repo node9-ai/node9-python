@@ -280,15 +280,22 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
       neither             → offline audit log (auto-approve, never blocks)
 
     Fail behaviour:
-      - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
       - Daemon unreachable at call time     → offline mode (fail-open, auto-approve)
         • If policy == "require_approval" a RuntimeWarning is emitted so the
           degradation is visible in logs even when nothing blocks.
+      - Daemon dies mid-request             → DaemonNotFoundError or ActionDeniedException
+        (fail-closed: no auto-approve path exists once a request_id is acquired)
+      - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
       - SaaS HTTP error or timeout          → RuntimeError (propagates to caller)
 
-    Timeouts:
-      - Initial connection: _CHECK_TIMEOUT (5 s)
-      - Waiting for human decision: _WAIT_TIMEOUT (65 s) — daemon auto-denies ~55 s
+    Timeouts (see _CHECK_TIMEOUT / _WAIT_TIMEOUT module constants):
+      - Initial connection: 5 s
+      - Waiting for human decision: 65 s — daemon auto-denies at ~55 s
+
+    ⚠️  evaluate() is a low-level primitive. Unlike @protect it does NOT run DLP
+    scanning or inject agent context (run_id, agent_name) automatically. Use
+    @protect for full protection; use evaluate() only when decorator composition
+    is not possible (e.g. dynamic tool dispatch in custom frameworks).
 
     Raises ActionDeniedException if the action is denied.
     """
