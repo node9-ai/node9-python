@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v2.0.1 (2026-04-08)
+
+### Bug Fixes
+
+- Skip PR creation when dev has no new commits vs main
+  ([#9](https://github.com/node9-ai/node9-python/pull/9),
+  [`f3ae50d`](https://github.com/node9-ai/node9-python/commit/f3ae50d6b0f808114baece29f563dc2bbb9b09c1))
+
+
 ## v1.1.4 (2026-04-07)
 
 
