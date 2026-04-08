@@ -336,8 +336,9 @@ class TestOfflineMode:
 class TestSaaSRoute:
     """Tests for the NODE9_API_KEY → SaaS routing path."""
 
-    def test_saas_http_error_raises_runtime_error(self, monkeypatch, tmp_path):
+    def test_saas_http_error_raises_runtime_error(self, monkeypatch):
         """SaaS HTTP errors (e.g. 401, 500) must propagate as RuntimeError, not auto-approve."""
+        import http.client
         import urllib.error
         monkeypatch.setenv("NODE9_API_KEY", "test-key")
         monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
@@ -346,7 +347,7 @@ class TestSaaSRoute:
             url="https://api.node9.ai/api/v1/intercept",
             code=401,
             msg="Unauthorized",
-            hdrs=None,  # type: ignore[arg-type]
+            hdrs=http.client.HTTPMessage(),
             fp=None,
         )
         with patch("urllib.request.urlopen", side_effect=http_error):
@@ -363,17 +364,45 @@ class TestSaaSRoute:
             with pytest.raises(RuntimeError, match="Failed to reach node9 SaaS"):
                 evaluate("bash", {"command": "ls"})
 
-    def test_saas_route_taken_when_api_key_set(self, monkeypatch):
-        """When NODE9_API_KEY is set the SaaS path is taken regardless of daemon state."""
+    def test_saas_route_taken_and_bearer_token_sent(self, monkeypatch):
+        """When NODE9_API_KEY is set: SaaS path is taken and Bearer token is in the request."""
+        monkeypatch.setenv("NODE9_API_KEY", "test-key-abc")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        captured_headers: list[dict] = []
+        approve_resp = _make_response({"approved": True})
+
+        def capturing_urlopen(req, timeout):
+            captured_headers.append(dict(req.headers))
+            return approve_resp
+
+        with patch("urllib.request.urlopen", side_effect=capturing_urlopen):
+            with patch("node9._client._daemon_reachable") as mock_check:
+                evaluate("bash", {"command": "ls"})
+
+        mock_check.assert_not_called()
+        assert captured_headers, "urlopen was never called"
+        auth = captured_headers[0].get("Authorization", "")
+        assert auth == "Bearer test-key-abc", f"Expected Bearer token, got: {auth!r}"
+
+    def test_saas_run_id_forwarded(self, monkeypatch):
+        """run_id is included in the SaaS request payload."""
         monkeypatch.setenv("NODE9_API_KEY", "test-key")
         monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
 
+        sent: list[dict] = []
         approve_resp = _make_response({"approved": True})
-        with patch("urllib.request.urlopen", return_value=approve_resp):
-            with patch("node9._client._daemon_reachable") as mock_check:
-                evaluate("bash", {"command": "ls"})
-        # daemon reachability must NOT be checked when API key is present
-        mock_check.assert_not_called()
+
+        def capturing_urlopen(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return approve_resp
+
+        with patch("urllib.request.urlopen", side_effect=capturing_urlopen):
+            evaluate("bash", {"command": "ls"}, run_id="saas-run-xyz")
+
+        assert sent, "No request was sent"
+        assert sent[0].get("runId") == "saas-run-xyz"
 
 
 class TestConfigure:

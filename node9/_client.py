@@ -288,9 +288,8 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
       - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
       - SaaS HTTP error or timeout          → RuntimeError (propagates to caller)
 
-    Timeouts (see _CHECK_TIMEOUT / _WAIT_TIMEOUT module constants):
-      - Initial connection: 5 s
-      - Waiting for human decision: 65 s — daemon auto-denies at ~55 s
+    Timeouts: see _CHECK_TIMEOUT (initial connection) and _WAIT_TIMEOUT
+    (human decision wait) module constants for current values.
 
     ⚠️  evaluate() is a low-level primitive. Unlike @protect it does NOT run DLP
     scanning or inject agent context (run_id, agent_name) automatically. Use
