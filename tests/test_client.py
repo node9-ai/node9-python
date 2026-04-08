@@ -16,9 +16,9 @@ def test_evaluate_importable_from_public_api():
     separately to verify the export is intentional and discoverable by linters
     and import-* consumers.
 
-    Fail-open / offline-mode coverage lives in TestOfflineMode (4 tests), which
-    verifies auto-approve behavior, audit log writes, and the require_approval
-    RuntimeWarning path.
+    Fail-open / offline-mode coverage lives in TestOfflineMode, which verifies
+    auto-approve behavior, audit log writes, and require_approval fail-closed path
+    (raises DaemonNotFoundError — see test_offline_with_require_approval_policy_raises).
     """
     import node9
     from node9 import evaluate as pub_evaluate
@@ -380,7 +380,10 @@ class TestSaaSRoute:
                 mock_check.assert_not_called()
 
         assert captured_headers, "urlopen was never called"
-        auth = captured_headers[0].get("Authorization", "")
+        # urllib capitalizes header keys (e.g. "authorization" → "Authorization"),
+        # so use case-insensitive lookup to avoid false negatives.
+        headers_lower = {k.lower(): v for k, v in captured_headers[0].items()}
+        auth = headers_lower.get("authorization", "")
         assert auth == "Bearer test-key-abc", f"Expected Bearer token, got: {auth!r}"
 
     def test_saas_denial_raises_action_denied_exception(self, monkeypatch):
@@ -395,14 +398,17 @@ class TestSaaSRoute:
         assert "Blocked by policy" in str(exc.value)
 
     def test_saas_malformed_response_raises(self, monkeypatch):
-        """SaaS response missing 'approved' key must not silently auto-approve."""
+        """SaaS response missing 'approved' key must raise ActionDeniedException, not auto-approve.
+
+        _evaluate_cloud logic: approved missing → falsy; pending missing → falsy →
+        raises ActionDeniedException("Denied by Node9 policy"). No fall-through to offline mode.
+        """
         monkeypatch.setenv("NODE9_API_KEY", "test-key")
         monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
 
-        # Missing both 'approved' and 'pending' — should raise, not auto-approve
         malformed = _make_response({"status": "unknown"})
         with patch("urllib.request.urlopen", return_value=malformed):
-            with pytest.raises((ActionDeniedException, RuntimeError)):
+            with pytest.raises(ActionDeniedException):
                 evaluate("bash", {"command": "ls"})
 
     def test_saas_run_id_defaults_to_empty_string(self, monkeypatch):

@@ -267,6 +267,15 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
 
 def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     """
+    ⚠️  evaluate() is a low-level primitive. Unlike @protect it does NOT run DLP
+    scanning or inject agent context (run_id, agent_name) automatically. Use
+    @protect for full protection; use evaluate() only when decorator composition
+    is not possible (e.g. dynamic tool dispatch in custom frameworks).
+
+    ⚠️  Default is fail-open: when neither daemon nor API key is available,
+    actions are auto-approved (offline audit mode). The exception is
+    policy == "require_approval" which raises DaemonNotFoundError (fail-closed).
+
     Sends the action to node9 for audit / approval.
 
     Routing (first match wins):
@@ -277,9 +286,7 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
 
     Fail behaviour:
       - Daemon unreachable at call time     → offline mode (fail-open, auto-approve)
-        ⚠️  Exception: policy == "require_approval" → DaemonNotFoundError (fail-closed).
-        Auto-approving when approval is explicitly required would be a silent
-        security bypass; operators must fix the connectivity issue instead.
+        Exception: policy == "require_approval" → DaemonNotFoundError (fail-closed).
       - Daemon dies mid-request             → DaemonNotFoundError or ActionDeniedException
         (fail-closed: no auto-approve path exists once a request_id is acquired)
       - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
@@ -287,11 +294,6 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
 
     Timeouts: see _CHECK_TIMEOUT (initial connection) and _WAIT_TIMEOUT
     (human decision wait) module constants for current values.
-
-    ⚠️  evaluate() is a low-level primitive. Unlike @protect it does NOT run DLP
-    scanning or inject agent context (run_id, agent_name) automatically. Use
-    @protect for full protection; use evaluate() only when decorator composition
-    is not possible (e.g. dynamic tool dispatch in custom frameworks).
 
     Raises ActionDeniedException if the action is denied.
     """
