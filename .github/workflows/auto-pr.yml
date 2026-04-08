@@ -30,6 +30,9 @@ jobs:
           COMMITS=$(git log origin/main..origin/dev --oneline | wc -l)
           if [ "$COMMITS" -eq 0 ]; then
             echo "No commits between dev and main — nothing to release, skipping PR."
+            # exit 0 here is correct: the gh pr create below is in the same run: block,
+            # so exiting the shell mid-script prevents it from running. There are no
+            # downstream steps in this job that would be skipped incorrectly.
             exit 0
           fi
           PR=$(gh pr list --base main --head dev --state open --json number -q '.[0].number')

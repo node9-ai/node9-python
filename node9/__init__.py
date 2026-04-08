@@ -6,6 +6,7 @@ from ._decorator import protect
 from ._exceptions import ActionDeniedException, DaemonNotFoundError
 from ._dlp import dlp_scan, safe_path
 from ._agent import Node9Agent, tool, internal
+from ._client import evaluate
 from . import _config
 
 
@@ -41,6 +42,8 @@ __all__ = [
     # .build_tools_openai()    — OpenAI function format
     # .dispatch(name, input)   — route LLM tool call to @tool method
     # .new_session()           — fresh run_id for server/multi-session deployments
+    # Low-level governance
+    "evaluate",     # manual evaluate() without @protect decorator
     # DLP utilities
     "dlp_scan",
     "safe_path",

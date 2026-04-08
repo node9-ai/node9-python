@@ -129,14 +129,14 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     import datetime
     _, policy = _config.get()
     if policy == "require_approval":
-        import warnings
-        warnings.warn(
-            f"[Node9] Governance degraded to offline/auto-approve for '{tool_name}' — "
-            "policy is 'require_approval' but no daemon or API key is available. "
-            "Start the node9 daemon or set NODE9_API_KEY to enforce approvals.",
-            RuntimeWarning,
-            stacklevel=4,
-        )
+        # Fail-closed: require_approval means governance must be enforced.
+        # Auto-approving silently would contradict the policy name and create
+        # a false sense of security. Raise so operators see the misconfiguration.
+        #
+        # Intentionally no audit log entry here: the action was NOT approved —
+        # raising is the terminal path. The operator must fix the connectivity
+        # issue (start daemon or set NODE9_API_KEY) and retry.
+        raise DaemonNotFoundError(DAEMON_PORT)
     audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
     os.makedirs(audit_dir, exist_ok=True)
     audit_path = os.path.join(audit_dir, "audit.log")
@@ -271,11 +271,33 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
 
 def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     """
-    Sends the action to node9 for audit / approval. Routing:
-      NODE9_SKIP=1        → no-op (unsafe bypass for testing)
-      NODE9_API_KEY set   → node9 SaaS
-      daemon reachable    → local proxy
+    ⚠️  evaluate() is a low-level primitive. Unlike @protect it does NOT run DLP
+    scanning or inject agent context (run_id, agent_name) automatically. Use
+    @protect for full protection; use evaluate() only when decorator composition
+    is not possible (e.g. dynamic tool dispatch in custom frameworks).
+
+    ⚠️  Default is fail-open: when neither daemon nor API key is available,
+    actions are auto-approved (offline audit mode). The exception is
+    policy == "require_approval" which raises DaemonNotFoundError (fail-closed).
+
+    Sends the action to node9 for audit / approval.
+
+    Routing (first match wins):
+      NODE9_SKIP=1        → no-op (unsafe bypass — testing only, emits a warning)
+      NODE9_API_KEY set   → node9 SaaS (HTTPS + Bearer token auth)
+      daemon reachable    → local proxy on 127.0.0.1 (no auth — loopback only)
       neither             → offline audit log (auto-approve, never blocks)
+
+    Fail behaviour:
+      - Daemon unreachable at call time     → offline mode (fail-open, auto-approve)
+        Exception: policy == "require_approval" → DaemonNotFoundError (fail-closed).
+      - Daemon dies mid-request             → DaemonNotFoundError or ActionDeniedException
+        (fail-closed: no auto-approve path exists once a request_id is acquired)
+      - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
+      - SaaS HTTP error or timeout          → RuntimeError (propagates to caller)
+
+    Timeouts: see _CHECK_TIMEOUT (initial connection) and _WAIT_TIMEOUT
+    (human decision wait) module constants for current values.
 
     Raises ActionDeniedException if the action is denied.
     """
