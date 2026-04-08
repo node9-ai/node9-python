@@ -8,6 +8,12 @@ from node9._exceptions import ActionDeniedException, DaemonNotFoundError
 from node9._client import evaluate
 
 
+def test_evaluate_importable_from_public_api():
+    """evaluate must be importable from the top-level node9 package (via __all__)."""
+    from node9 import evaluate as pub_evaluate  # noqa: F401
+    assert callable(pub_evaluate)
+
+
 
 def _make_response(data: dict):
     """Create a mock urllib response."""

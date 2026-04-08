@@ -271,11 +271,24 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
 
 def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
     """
-    Sends the action to node9 for audit / approval. Routing:
-      NODE9_SKIP=1        → no-op (unsafe bypass for testing)
-      NODE9_API_KEY set   → node9 SaaS
-      daemon reachable    → local proxy
+    Sends the action to node9 for audit / approval.
+
+    Routing (first match wins):
+      NODE9_SKIP=1        → no-op (unsafe bypass — testing only, emits a warning)
+      NODE9_API_KEY set   → node9 SaaS (HTTPS + Bearer token auth)
+      daemon reachable    → local proxy on 127.0.0.1 (no auth — loopback only)
       neither             → offline audit log (auto-approve, never blocks)
+
+    Fail behaviour:
+      - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)
+      - Daemon unreachable at call time     → offline mode (fail-open, auto-approve)
+        • If policy == "require_approval" a RuntimeWarning is emitted so the
+          degradation is visible in logs even when nothing blocks.
+      - SaaS HTTP error or timeout          → RuntimeError (propagates to caller)
+
+    Timeouts:
+      - Initial connection: _CHECK_TIMEOUT (5 s)
+      - Waiting for human decision: _WAIT_TIMEOUT (65 s) — daemon auto-denies ~55 s
 
     Raises ActionDeniedException if the action is denied.
     """
