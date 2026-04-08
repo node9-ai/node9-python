@@ -379,11 +379,23 @@ class TestSaaSRoute:
         with patch("urllib.request.urlopen", side_effect=capturing_urlopen):
             with patch("node9._client._daemon_reachable") as mock_check:
                 evaluate("bash", {"command": "ls"})
+                # Assert inside the with block so mock is still active
+                mock_check.assert_not_called()
 
-        mock_check.assert_not_called()
         assert captured_headers, "urlopen was never called"
         auth = captured_headers[0].get("Authorization", "")
         assert auth == "Bearer test-key-abc", f"Expected Bearer token, got: {auth!r}"
+
+    def test_saas_denial_raises_action_denied_exception(self, monkeypatch):
+        """SaaS returning approved=False must raise ActionDeniedException, not auto-approve."""
+        monkeypatch.setenv("NODE9_API_KEY", "test-key")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        deny_resp = _make_response({"approved": False, "pending": False, "reason": "Blocked by policy"})
+        with patch("urllib.request.urlopen", return_value=deny_resp):
+            with pytest.raises(ActionDeniedException) as exc:
+                evaluate("bash", {"command": "rm -rf /"})
+        assert "Blocked by policy" in exc.value.reason
 
     def test_saas_run_id_forwarded(self, monkeypatch):
         """run_id is included in the SaaS request payload."""
