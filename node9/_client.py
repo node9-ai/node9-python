@@ -129,14 +129,10 @@ def _offline_audit(tool_name: str, args: dict[str, Any], run_id: str) -> None:
     import datetime
     _, policy = _config.get()
     if policy == "require_approval":
-        import warnings
-        warnings.warn(
-            f"[Node9] Governance degraded to offline/auto-approve for '{tool_name}' — "
-            "policy is 'require_approval' but no daemon or API key is available. "
-            "Start the node9 daemon or set NODE9_API_KEY to enforce approvals.",
-            RuntimeWarning,
-            stacklevel=4,
-        )
+        # Fail-closed: require_approval means governance must be enforced.
+        # Auto-approving silently would contradict the policy name and create
+        # a false sense of security. Raise so operators see the misconfiguration.
+        raise DaemonNotFoundError(DAEMON_PORT)
     audit_dir = os.path.join(os.path.expanduser("~"), ".node9")
     os.makedirs(audit_dir, exist_ok=True)
     audit_path = os.path.join(audit_dir, "audit.log")
@@ -281,8 +277,9 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
 
     Fail behaviour:
       - Daemon unreachable at call time     → offline mode (fail-open, auto-approve)
-        • If policy == "require_approval" a RuntimeWarning is emitted so the
-          degradation is visible in logs even when nothing blocks.
+        ⚠️  Exception: policy == "require_approval" → DaemonNotFoundError (fail-closed).
+        Auto-approving when approval is explicitly required would be a silent
+        security bypass; operators must fix the connectivity issue instead.
       - Daemon dies mid-request             → DaemonNotFoundError or ActionDeniedException
         (fail-closed: no auto-approve path exists once a request_id is acquired)
       - Daemon timeout / connection closed  → ActionDeniedException (fail-closed)

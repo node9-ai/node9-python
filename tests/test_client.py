@@ -315,22 +315,20 @@ class TestOfflineMode:
             result = evaluate("bash", {"command": "ls"})
         assert result is None
 
-    def test_offline_with_require_approval_policy_warns(self, monkeypatch, tmp_path):
-        """Offline auto-approve must warn loudly when policy is require_approval."""
-        import warnings
+    def test_offline_with_require_approval_policy_raises(self, monkeypatch, tmp_path):
+        """require_approval + no daemon/API key must raise DaemonNotFoundError (fail-closed).
+
+        Auto-approving silently would contradict the policy name — raise so operators
+        see the misconfiguration rather than getting a false sense of security.
+        """
         import node9._config as cfg
         monkeypatch.delenv("NODE9_API_KEY", raising=False)
         monkeypatch.delenv("NODE9_AUTO_START", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(cfg, "AGENT_POLICY", "require_approval")
         with patch("node9._client._daemon_reachable", return_value=False):
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
+            with pytest.raises(DaemonNotFoundError):
                 evaluate("deploy", {"target": "prod"})
-        assert any(
-            issubclass(w.category, RuntimeWarning) and "require_approval" in str(w.message)
-            for w in caught
-        ), "Expected RuntimeWarning for offline degradation under require_approval policy"
 
 
 class TestSaaSRoute:
@@ -379,7 +377,6 @@ class TestSaaSRoute:
         with patch("urllib.request.urlopen", side_effect=capturing_urlopen):
             with patch("node9._client._daemon_reachable") as mock_check:
                 evaluate("bash", {"command": "ls"})
-                # Assert inside the with block so mock is still active
                 mock_check.assert_not_called()
 
         assert captured_headers, "urlopen was never called"
@@ -395,7 +392,37 @@ class TestSaaSRoute:
         with patch("urllib.request.urlopen", return_value=deny_resp):
             with pytest.raises(ActionDeniedException) as exc:
                 evaluate("bash", {"command": "rm -rf /"})
-        assert "Blocked by policy" in exc.value.reason
+        assert "Blocked by policy" in str(exc.value)
+
+    def test_saas_malformed_response_raises(self, monkeypatch):
+        """SaaS response missing 'approved' key must not silently auto-approve."""
+        monkeypatch.setenv("NODE9_API_KEY", "test-key")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        # Missing both 'approved' and 'pending' — should raise, not auto-approve
+        malformed = _make_response({"status": "unknown"})
+        with patch("urllib.request.urlopen", return_value=malformed):
+            with pytest.raises((ActionDeniedException, RuntimeError)):
+                evaluate("bash", {"command": "ls"})
+
+    def test_saas_run_id_defaults_to_empty_string(self, monkeypatch):
+        """run_id omitted from call → empty string sent in SaaS payload (not None / missing)."""
+        monkeypatch.setenv("NODE9_API_KEY", "test-key")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        sent: list[dict] = []
+        approve_resp = _make_response({"approved": True})
+
+        def capturing_urlopen(req, timeout):
+            if hasattr(req, "data") and req.data:
+                sent.append(json.loads(req.data))
+            return approve_resp
+
+        with patch("urllib.request.urlopen", side_effect=capturing_urlopen):
+            evaluate("bash", {"command": "ls"})  # no run_id argument
+
+        assert sent, "No request sent"
+        assert sent[0].get("runId") == "", f"Expected empty string runId, got: {sent[0].get('runId')!r}"
 
     def test_saas_run_id_forwarded(self, monkeypatch):
         """run_id is included in the SaaS request payload."""
