@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "node9"
-version = "2.0.1"
+version = "2.1.0"
 description = "Execution security for Python AI agents — seatbelt for LangChain, CrewAI, and plain Python."
 readme = "README.md"
 license = { text = "Apache-2.0" }

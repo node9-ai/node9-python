@@ -2,6 +2,61 @@
 
 <!-- version list -->
 
+## v2.1.0 (2026-04-08)
+
+### Bug Fixes
+
+- Document and test that require_approval raise skips audit log
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- Merge latest dev updates into main ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- Skip PR creation when dev has no new commits vs main
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- **evaluate**: Document @protect bypass, clarify TOCTOU safety; add SaaS path tests
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- **security**: Require_approval + offline now raises DaemonNotFoundError (fail-closed)
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+### Continuous Integration
+
+- **auto-pr**: Clarify exit 0 intent with inline comment
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+### Documentation
+
+- **evaluate**: Document fail behaviour, auth, and timeouts; add public API import test
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+### Features
+
+- Export evaluate() as public API ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+### Testing
+
+- **evaluate**: Assert __all__ membership directly, document existing offline coverage
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- **saas**: Add denial path test; move assert_not_called inside with block
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+- **saas**: Fix HTTPError mock, assert Bearer token, add run_id test; trim docstring
+  ([#10](https://github.com/node9-ai/node9-python/pull/10),
+  [`29fa9a7`](https://github.com/node9-ai/node9-python/commit/29fa9a707755d6c8880d729c23fa6ad8e89ce86e))
+
+
 ## v2.0.1 (2026-04-08)
 
 ### Bug Fixes
