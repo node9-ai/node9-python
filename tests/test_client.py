@@ -9,10 +9,21 @@ from node9._client import evaluate
 
 
 def test_evaluate_importable_from_public_api():
-    """evaluate must be importable from the top-level node9 package (via __all__)."""
-    from node9 import evaluate as pub_evaluate  # noqa: F401
-    assert callable(pub_evaluate)
+    """evaluate is in __all__ and importable from the top-level node9 package.
 
+    Note: from node9 import evaluate would succeed even with a broken __all__
+    (because __init__.py imports it directly), so we assert __all__ membership
+    separately to verify the export is intentional and discoverable by linters
+    and import-* consumers.
+
+    Fail-open / offline-mode coverage lives in TestOfflineMode (4 tests), which
+    verifies auto-approve behavior, audit log writes, and the require_approval
+    RuntimeWarning path.
+    """
+    import node9
+    from node9 import evaluate as pub_evaluate
+    assert callable(pub_evaluate)
+    assert "evaluate" in node9.__all__
 
 
 def _make_response(data: dict):
