@@ -44,6 +44,8 @@ upload_to_release = true
 commit_version_number = true
 tag_commit = true
 hvcs = "github"
+major_on_zero = false
+
 
 [tool.semantic_release.publish]
 upload_to_vcs_release = true
