@@ -26,6 +26,12 @@ jobs:
             > - `feat:` to publish a Minor release (0.X.0)
             > If it starts with `chore:`, no PyPI package will be published!
         run: |
+          git fetch origin main
+          COMMITS=$(git log origin/main..origin/dev --oneline | wc -l)
+          if [ "$COMMITS" -eq 0 ]; then
+            echo "No commits between dev and main — nothing to release, skipping PR."
+            exit 0
+          fi
           PR=$(gh pr list --base main --head dev --state open --json number -q '.[0].number')
           if [ -z "$PR" ]; then
             gh pr create \
