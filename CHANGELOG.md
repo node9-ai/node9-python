@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v2.2.1 (2026-04-14)
+
+### Bug Fixes
+
+- Catch bare TimeoutError and HTTPException from SaaS urlopen
+  ([`9aa5546`](https://github.com/node9-ai/node9-python/commit/9aa5546b58bc2e67a2ed5b9d7102d06e574586c6))
+
+
 ## v2.2.0 (2026-04-08)
 
 ### Bug Fixes
