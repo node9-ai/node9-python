@@ -382,6 +382,26 @@ class TestSaaSRoute:
             with pytest.raises(RuntimeError, match="Failed to reach node9 SaaS"):
                 evaluate("bash", {"command": "ls"})
 
+    def test_saas_bare_timeout_error_raises_runtime_error(self, monkeypatch):
+        """Python 3.11+ SSL read timeouts surface as bare TimeoutError, not URLError.
+        Must raise RuntimeError, not crash the agent with an unhandled exception."""
+        monkeypatch.setenv("NODE9_API_KEY", "test-key")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        with patch("urllib.request.urlopen", side_effect=TimeoutError("The read operation timed out")):
+            with pytest.raises(RuntimeError, match="Failed to reach node9 SaaS"):
+                evaluate("bash", {"command": "ls"})
+
+    def test_saas_http_exception_raises_runtime_error(self, monkeypatch):
+        """Transport-level failures (RemoteDisconnected, IncompleteRead) must raise RuntimeError."""
+        import http.client
+        monkeypatch.setenv("NODE9_API_KEY", "test-key")
+        monkeypatch.setenv("NODE9_API_URL", "https://api.node9.ai/api/v1/intercept")
+
+        with patch("urllib.request.urlopen", side_effect=http.client.RemoteDisconnected("connection reset")):
+            with pytest.raises(RuntimeError, match="Failed to reach node9 SaaS"):
+                evaluate("bash", {"command": "ls"})
+
     def test_saas_route_taken_and_bearer_token_sent(self, monkeypatch):
         """When NODE9_API_KEY is set: SaaS path is taken and Bearer token is in the request."""
         monkeypatch.setenv("NODE9_API_KEY", "test-key-abc")

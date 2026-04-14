@@ -220,6 +220,11 @@ def _evaluate_cloud(tool_name: str, args: dict[str, Any], run_id: str = "") -> N
         ) from e
     except urllib.error.URLError as e:
         raise RuntimeError(f"[Node9] Failed to reach node9 SaaS: {e}") from e
+    except (TimeoutError, http.client.HTTPException) as e:
+        # Python 3.11+ SSL timeouts can propagate as bare TimeoutError without
+        # being wrapped in urllib.error.URLError. HTTPException covers RemoteDisconnected
+        # and other transport-level failures during the response read.
+        raise RuntimeError(f"[Node9] Failed to reach node9 SaaS: {e}") from e
 
     if result.get("approved"):
         return
