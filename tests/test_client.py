@@ -1,5 +1,6 @@
 """Tests for the daemon HTTP client."""
 import json
+import time
 import pytest
 from unittest.mock import patch, MagicMock
 from http.client import RemoteDisconnected
@@ -99,6 +100,79 @@ class TestEvaluate:
         with patch("urllib.request.urlopen", side_effect=side_effect):
             with pytest.raises(ActionDeniedException):
                 evaluate("deploy", {"server": "prod"})
+
+    # Approval cards (node9-proxy 2.35): the SDK asks the daemon to check the
+    # call itself ("evaluate"), reads the decision with the daemon's token, and
+    # waits as long as the card's own timer.
+    def test_check_asks_the_daemon_to_evaluate_with_the_token(self):
+        calls = []
+
+        def side_effect(req, timeout):
+            calls.append((req, timeout))
+            if req.get_method() == "POST":
+                return _make_response({"id": "req-1", "protocol": 2, "deadline": None})
+            return _make_response({"decision": "allow"})
+
+        with patch("node9._client._internal_token", return_value="tok"), \
+                patch("urllib.request.urlopen", side_effect=side_effect):
+            evaluate("write_file", {"path": "/tmp/x"})
+
+        check_body = json.loads(calls[0][0].data)
+        assert check_body["kind"] == "evaluate"
+        assert check_body["protocol"] == 2
+        wait_req, wait_timeout = calls[1]
+        assert wait_req.get_header("X-node9-internal") == "tok"
+        # deadline null: the card has no timer, so the SDK waits for a person.
+        assert wait_timeout is None
+
+    def test_wait_follows_the_card_deadline(self):
+        calls = []
+        deadline_ms = (time.time() + 120) * 1000
+
+        def side_effect(req, timeout):
+            calls.append(timeout)
+            if req.get_method() == "POST":
+                return _make_response({"id": "req-1", "protocol": 2, "deadline": deadline_ms})
+            return _make_response({"decision": "allow"})
+
+        with patch("node9._client._internal_token", return_value="tok"), \
+                patch("urllib.request.urlopen", side_effect=side_effect):
+            evaluate("write_file", {"path": "/tmp/x"})
+
+        # Before: a fixed 65 s, shorter than the daemon's default 120 s timer.
+        assert 120 < calls[1] <= 126
+
+    def test_without_the_token_the_card_is_not_protocol_2(self):
+        calls = []
+
+        def side_effect(req, timeout):
+            calls.append((req, timeout))
+            if req.get_method() == "POST":
+                return _make_response({"id": "req-1"})
+            return _make_response({"decision": "allow"})
+
+        with patch("node9._client._internal_token", return_value=None), \
+                patch("urllib.request.urlopen", side_effect=side_effect):
+            evaluate("write_file", {"path": "/tmp/x"})
+
+        check_body = json.loads(calls[0][0].data)
+        assert check_body["kind"] == "evaluate"
+        assert "protocol" not in check_body
+        assert calls[1][0].get_header("X-node9-internal") is None
+        assert calls[1][1] == 65  # an older daemon: the fixed wait
+
+    def test_deny_reason_from_the_decision_record(self):
+        check_resp = _make_response({"id": "req-1"})
+        wait_resp = _make_response({
+            "decision": "deny",
+            "record": {"decision": "deny", "decidedBy": "policy", "label": "Smart Rule: x",
+                       "reason": "the project rule blocks this"},
+        })
+        with patch("node9._client._internal_token", return_value=None), \
+                patch("urllib.request.urlopen", side_effect=[check_resp, wait_resp]):
+            with pytest.raises(ActionDeniedException) as exc:
+                evaluate("bash", {"command": "rm -rf /"})
+        assert exc.value.reason == "the project rule blocks this"
 
     def test_node9_skip_env_bypasses_daemon(self, monkeypatch):
         # _SKIP is read once at import time — patch the flag directly
