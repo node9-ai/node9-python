@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v2.3.0 (2026-10-20)
+
+### Chores
+
+- Remove the AI Code Review workflow
+  ([`4f71d6f`](https://github.com/node9-ai/node9-python/commit/4f71d6f5929d99e12ba73e3de94f0fa2cef7b88e))
+
+### Features
+
+- Approval cards, the daemon checks the call with the caller's cwd
+  ([`1891886`](https://github.com/node9-ai/node9-python/commit/1891886e7abedf115adf283bc5bded41b994ecd7))
+
+
 ## v2.2.1 (2026-04-14)
 
 ### Bug Fixes
