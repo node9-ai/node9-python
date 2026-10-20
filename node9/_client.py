@@ -92,10 +92,40 @@ def _post(path: str, payload: dict) -> dict:
         raise DaemonNotFoundError(DAEMON_PORT)
 
 
-def _get(path: str) -> dict:
-    req = urllib.request.Request(f"{_DAEMON_BASE}{path}", method="GET")
+_CARD_PROTOCOL = 2
+
+
+def _internal_token() -> str | None:
+    """The daemon's per-process token from ~/.node9/daemon.pid (mode 0600,
+    readable by the user that runs the daemon). None when unreadable."""
+    pid_file = os.path.join(os.path.expanduser("~"), ".node9", "daemon.pid")
     try:
-        with urllib.request.urlopen(req, timeout=_WAIT_TIMEOUT) as resp:
+        with open(pid_file, encoding="utf-8") as f:
+            token = json.load(f).get("internalToken")
+        return token if isinstance(token, str) and token else None
+    except (OSError, ValueError):
+        return None
+
+
+def _wait_timeout(check_result: dict) -> float | None:
+    """How long to wait on /wait. A daemon that speaks the card protocol says
+    when the card's own timer decides it (`deadline`, epoch ms, or null for no
+    timer): wait a little longer than that. An older daemon: the fixed wait."""
+    if check_result.get("protocol") != _CARD_PROTOCOL:
+        return _WAIT_TIMEOUT
+    deadline = check_result.get("deadline")
+    if deadline is None:
+        return None  # no timer: the card waits for a person
+    if isinstance(deadline, (int, float)):
+        return max(deadline / 1000 - time.time(), 0) + 5
+    return _WAIT_TIMEOUT
+
+
+def _get(path: str, timeout: float | None = _WAIT_TIMEOUT, token: str | None = None) -> dict:
+    headers = {"X-Node9-Internal": token} if token else {}
+    req = urllib.request.Request(f"{_DAEMON_BASE}{path}", headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read())
     except (urllib.error.URLError, http.client.HTTPException):
         # URLError = timeout / connection error
@@ -327,6 +357,10 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
         _offline_audit(tool_name, args, run_id=run_id)
         return
 
+    # kind "evaluate": the daemon checks this call itself, with this cwd (the
+    # SDK evaluates no policy of its own). With the daemon's token, the card is
+    # a protocol-2 card whose decision only a token holder can read.
+    token = _internal_token()
     result = _post("/check", {
         "toolName": tool_name,
         "args": args,
@@ -334,15 +368,19 @@ def evaluate(tool_name: str, args: dict[str, Any], *, run_id: str = "") -> None:
         "agent": (_config.get()[0] or "Python SDK"),
         "policy": _config.get()[1],
         "runId": run_id,
+        "kind": "evaluate",
+        **({"protocol": _CARD_PROTOCOL} if token else {}),
     })
     request_id = result.get("id")
     if not request_id:
         raise RuntimeError(f"[Node9] Unexpected daemon response: {result}")
 
     print(f"🛡️  Node9: waiting for approval of '{tool_name}'...", file=sys.stderr, flush=True)
-    decision_result = _get(f"/wait/{request_id}")
+    decision_result = _get(f"/wait/{request_id}", timeout=_wait_timeout(result), token=token)
     decision = decision_result.get("decision", "deny")
 
     if decision != "allow":
-        reason = decision_result.get("reason", "Denied by Node9 policy")
+        record = decision_result.get("record")
+        record_reason = record.get("reason") if isinstance(record, dict) else None
+        reason = decision_result.get("reason") or record_reason or "Denied by Node9 policy"
         raise ActionDeniedException(tool_name, reason)
